@@ -116,6 +116,44 @@ Max allowed target humidity depends on target temperature (steamer duty
 cycle limits from the UKU manual) — the app enforces this client-side and
 will show an error if you ask for a combination the heater can't do.
 
+### Local control — researched, not implemented
+
+Asked whether a second, local-only driver was feasible ("uku-local"). Dug
+into the only public reverse-engineering of the UKU's LAN behaviour,
+[kpalang/huum-controller](https://github.com/kpalang/huum-controller) and
+its [accompanying write-up](https://kaurpalang.com/posts/invading-the-sauna/)
+(read the source directly since the write-up itself is not reachable from
+here). Conclusion: **not worth building**, for reasons specific to this
+device, not local control in general:
+
+- The UKU doesn't run a local server you connect to. It always dials
+  *out* to a cloud host on TCP port 6969. "Local control" only works by
+  redirecting that outbound connection to a machine on your LAN (DNS
+  override at the router, e.g. Pi-hole/pfSense) and running a fake-cloud
+  TCP+HTTP server there yourself — reconfiguring your network, not
+  something a Homey app can do on its own. Neither the repo nor its README
+  documents how to actually do that redirection.
+- Once redirected, the heater talks to *that* server exclusively — the
+  real HUUM cloud (and so the official app, and this app's own cloud
+  driver) stops working for that unit at the same time.
+- **The reverse-engineered protocol has no humidity/steamer parameter at
+  all** — only `heaterOn(targetTemp, durationHours)` / `heaterOff()`, both
+  fixed 24-byte messages with unexplained "unknown value" magic bytes
+  copied from a packet capture. A local driver would be strictly worse at
+  the one thing this whole app exists for.
+- No door-state field either, so the door-open safety check this app
+  relies on couldn't be implemented locally.
+- No authentication on the TCP protocol at all, and the repo notes it
+  already doesn't work on at least one known firmware version
+  (`4.4.18.0-4`) — fragile by nature of being unofficial.
+
+Given target humidity and the door safety check are the two things this
+app is actually for, and local control would have neither: not building
+it. If the reverse-engineering community ever documents humidity control
+and door state over the local protocol, this is worth revisiting — the
+cloud driver's architecture (separate `lib/*Api.js` client + thin
+driver/device pair) would make adding a second driver straightforward.
+
 ## Project layout
 
 ```
@@ -225,6 +263,16 @@ Homey doesn't show "action failed" for something that actually worked.
 This is covered by `test/device.test.js`, which runs `drivers/uku/device.js`
 against a stub Homey runtime and specifically simulates a successful
 action whose immediate refresh fails (see "Running the tests" below).
+
+## Author & support info
+
+Matches the same developer's other Homey app ([Device
+Watchdog](https://github.com/RickD-CH/com.rickd.devicewatchdog)):
+`author.name` set, no public email in `app.json`, same PayPal donate
+handle under `contributing.donate`. No `support` URL yet — Device
+Watchdog's points at its Homey Community forum topic, which doesn't exist
+for this app yet since it isn't published; add one the same way once it
+does.
 
 ## App Store guideline audit
 

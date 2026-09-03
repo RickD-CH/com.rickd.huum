@@ -41,6 +41,18 @@ for (const [locale, name] of Object.entries(appJson.name)) {
 assert.ok(!/homey|athom/i.test(appJson.id), `app id "${appJson.id}" must not contain "homey"/"athom" (guideline / checklist "App ID")`);
 console.log('OK: app name word count and Homey/Athom naming rules (guideline 1.1)');
 
+// --- Author / donate (mirrors this developer's other Homey app) ----------
+assert.ok(appJson.author && appJson.author.name, 'author.name must be set (guideline: account/author info)');
+assert.ok(
+  !appJson.author.email,
+  'author.email should not be published in app.json (matches this developer\'s other apps, which omit it)',
+);
+assert.ok(
+  appJson.contributing?.donate?.paypal?.username,
+  'contributing.donate.paypal.username should be set (matches this developer\'s other apps)',
+);
+console.log('OK: author/donate info present and matches the no-public-email convention');
+
 // --- 1.7 Brand color, SDK, permissions ------------------------------------
 assert.match(appJson.brandColor || '', /^#[0-9a-fA-F]{6}$/, 'brandColor must be set as a hex color (guideline 1.7)');
 assert.strictEqual(appJson.sdk, 3, 'new apps must be built on SDK v3 (guideline 1.14)');
