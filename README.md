@@ -49,9 +49,28 @@ safety check.
 - Approximate **Energy tab** usage while heating, based on a heater power
   (kW) you enter in the device settings (the API doesn't report real
   wattage, so this is an estimate, not a measurement)
-- Device settings show read-only info reported by the heater itself: child
+- Device settings show read-only info reported by the heater itself:
+  **whether a steamer and a light/fan are actually connected**, child
   lock state, remote safety state, subscription (`paymentEndDate`) end
   date, and its reported temperature/timer limits
+
+### Steamer/light detection
+
+The API's `config` field tells you what hardware this UKU is actually wired
+up to (`1` = steamer only, `2` = light only, `3` = both — it's a bitmask).
+The app reads this once at pairing and again on every poll:
+
+- **No steamer detected** → `target_humidity`, `measure_humidity` and the
+  `alarm_water` ("no water") alarm are never added to the device (or are
+  removed if they were, e.g. after upgrading from an older version of this
+  app) — no point offering humidity controls for hardware that isn't there.
+- **No light/fan detected** → `onoff.light` is left off the device.
+- Either way, the result is shown as plain "Yes/No" in the device settings
+  under *Sauna info*, so you can see what the app detected without
+  guessing from which capabilities happen to be visible.
+- If `config` isn't returned by the API at all (older firmware?), the app
+  assumes both are present rather than silently hiding something you do
+  have.
 
 ## How it talks to your sauna
 

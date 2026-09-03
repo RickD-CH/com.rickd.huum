@@ -9,5 +9,9 @@
   "notifications": {
     "water_alarm_title": "{{name}}: Verdampfer braucht Wasser.",
     "water_alarm_body": "Kein Wasser im Verdampfer, Verdampfer darf nicht starten"
+  },
+  "labels": {
+    "yes": "Ja",
+    "no": "Nein"
   }
 }

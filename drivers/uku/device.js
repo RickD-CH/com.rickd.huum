@@ -2,8 +2,13 @@
 
 const Homey = require('homey');
 const {
-  HuumApi, HuumAuthError, HuumSafetyError, STEAMER_ERROR_TEXTS,
+  HuumApi, HuumAuthError, HuumSafetyError, STEAMER_ERROR_TEXTS, CONFIG_FLAGS, configHasFlag,
 } = require('../../lib/HuumApi');
+
+// Capabilities that only make sense if the corresponding hardware module
+// (per HuumStatusResponse.config) is actually present on this UKU.
+const STEAMER_CAPABILITIES = ['target_humidity', 'measure_humidity', 'alarm_water'];
+const LIGHT_CAPABILITIES = ['onoff.light'];
 
 const DEFAULT_POLL_INTERVAL_S = 30;
 const DEFAULT_FINISHING_SOON_MINUTES = 10;
@@ -12,12 +17,30 @@ class HuumDevice extends Homey.Device {
 
   async onInit() {
     await this._createApiClient();
-    this._registerCapabilityListeners();
     this._appliedCapabilityLimits = null;
     this._wasBelowFinishingSoonThreshold = false;
 
+    // Detect which hardware modules (steamer/light) this UKU actually has
+    // *before* registering capability listeners, so e.g. target_humidity
+    // only gets a listener when it's actually there. Devices paired by an
+    // older version of this app, or paired while the API didn't return
+    // `config`, get corrected here too.
+    let initialStatus = null;
+    try {
+      initialStatus = await this.api.getStatus();
+      await this._reconcileCapabilities(initialStatus);
+    } catch (err) {
+      this.error('Initial capability detection failed:', err.message);
+    }
+
+    this._registerCapabilityListeners();
     await this._applyEnergySetting();
-    await this._syncStatus().catch((err) => this.error('Initial status sync failed:', err.message));
+
+    if (initialStatus) {
+      await this._applyStatus(initialStatus).catch((err) => this.error('Applying initial status failed:', err.message));
+    } else {
+      await this._syncStatus().catch((err) => this.error('Initial status sync failed:', err.message));
+    }
 
     this._startPolling();
   }
@@ -104,18 +127,20 @@ class HuumDevice extends Homey.Device {
     });
 
     // The whole point of this app: target_humidity is settable here, unlike
-    // in the official HUUM app.
-    this.registerCapabilityListener('target_humidity', async (value) => {
-      const humidityPercent = Math.round(value * 100);
-      if (!this.getCapabilityValue('onoff')) {
-        // Remember it locally; it will be sent along with the next start.
-        await this.setCapabilityValue('target_humidity', value).catch(this.error);
-        return;
-      }
-      const temperature = this.getCapabilityValue('target_temperature') || 80;
-      await this._start(temperature, humidityPercent);
-      await this._syncStatus();
-    });
+    // in the official HUUM app. Only present on saunas with a steamer.
+    if (this.hasCapability('target_humidity')) {
+      this.registerCapabilityListener('target_humidity', async (value) => {
+        const humidityPercent = Math.round(value * 100);
+        if (!this.getCapabilityValue('onoff')) {
+          // Remember it locally; it will be sent along with the next start.
+          await this.setCapabilityValue('target_humidity', value).catch(this.error);
+          return;
+        }
+        const temperature = this.getCapabilityValue('target_temperature') || 80;
+        await this._start(temperature, humidityPercent);
+        await this._syncStatus();
+      });
+    }
 
     if (this.hasCapability('onoff.light')) {
       this.registerCapabilityListener('onoff.light', async (value) => {
@@ -171,6 +196,37 @@ class HuumDevice extends Homey.Device {
       await this.setAvailable().catch(this.error);
     }
 
+    await this._reconcileCapabilities(status);
+    await this._applyStatus(status);
+
+    return status;
+  }
+
+  /**
+   * Adds/removes the steamer- and light-only capabilities to match what
+   * this UKU is actually configured for (HuumStatusResponse.config),
+   * detected once at startup and re-checked on every poll — see "Kann
+   * ermittelt werden, ob ein Verdampfer angeschlossen ist?" in the README.
+   */
+  async _reconcileCapabilities(status) {
+    const wanted = new Map([
+      ...STEAMER_CAPABILITIES.map((id) => [id, configHasFlag(status.config, CONFIG_FLAGS.STEAMER)]),
+      ...LIGHT_CAPABILITIES.map((id) => [id, configHasFlag(status.config, CONFIG_FLAGS.LIGHT)]),
+    ]);
+
+    for (const [capabilityId, shouldHave] of wanted) {
+      const has = this.hasCapability(capabilityId);
+      if (shouldHave && !has) {
+        await this.addCapability(capabilityId)
+          .catch((err) => this.error(`Failed to add capability ${capabilityId}:`, err.message));
+      } else if (!shouldHave && has) {
+        await this.removeCapability(capabilityId)
+          .catch((err) => this.error(`Failed to remove capability ${capabilityId}:`, err.message));
+      }
+    }
+  }
+
+  async _applyStatus(status) {
     await this._setCapabilitySafe('onoff', status.isHeating);
     await this._setCapabilitySafe('measure_temperature', status.temperature);
     await this._setCapabilitySafe('target_temperature', status.targetTemperature);
@@ -254,7 +310,10 @@ class HuumDevice extends Homey.Device {
 
   async _syncInfoSettings(status) {
     const config = status.saunaConfig;
+    const yesNo = (bool) => this.homey.__(bool ? 'labels.yes' : 'labels.no');
     const settings = {
+      steamerInstalled: yesNo(configHasFlag(status.config, CONFIG_FLAGS.STEAMER)),
+      lightInstalled: yesNo(configHasFlag(status.config, CONFIG_FLAGS.LIGHT)),
       childLock: config ? String(config.childLock) : '-',
       remoteSafetyState: status.remoteSafetyState || '-',
       paymentEndDate: status.paymentEndDate || '-',
