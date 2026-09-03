@@ -1,0 +1,9 @@
+{
+  "pair": {
+    "not_logged_in": "Bitte zuerst anmelden"
+  },
+  "errors": {
+    "door_open": "Die Sauna kann nicht gestartet werden, solange die Tür offen ist",
+    "auth_failed": "HUUM-Anmeldung fehlgeschlagen. Bitte dieses Gerät mit aktueller E-Mail-Adresse und Passwort reparieren."
+  }
+}

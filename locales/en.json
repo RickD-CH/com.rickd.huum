@@ -1,0 +1,9 @@
+{
+  "pair": {
+    "not_logged_in": "Please log in first"
+  },
+  "errors": {
+    "door_open": "Cannot start the sauna while the door is open",
+    "auth_failed": "HUUM login failed. Please repair this device with your current email and password."
+  }
+}
