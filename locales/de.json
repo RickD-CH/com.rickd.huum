@@ -1,0 +1,12 @@
+{
+  "pair": {
+    "invalid_credentials": "Anmeldung fehlgeschlagen - bitte E-Mail und Passwort für HUUM prüfen.",
+    "default_name": "HUUM Sauna"
+  },
+  "errors": {
+    "door_open": "Die Saunatür ist offen, das Heizen wird nicht gestartet."
+  },
+  "warnings": {
+    "emergency_stop": "Die Sauna meldet einen Nothalt. Bitte den Ofen prüfen, bevor erneut gestartet wird."
+  }
+}

@@ -1,0 +1,306 @@
+{
+  "id": "com.rickd.huumlocal",
+  "version": "0.1.0",
+  "compatibility": ">=5.0.0",
+  "sdk": 3,
+  "platforms": [
+    "local"
+  ],
+  "name": {
+    "en": "HUUM Sauna",
+    "de": "HUUM Sauna"
+  },
+  "description": {
+    "en": "Control your HUUM sauna heater (UKU WiFi) from Homey.",
+    "de": "Steuere deinen HUUM Saunaofen (UKU WiFi) mit Homey."
+  },
+  "category": [
+    "climate"
+  ],
+  "permissions": [],
+  "images": {
+    "small": "/assets/images/small.png",
+    "large": "/assets/images/large.png",
+    "xlarge": "/assets/images/xlarge.png"
+  },
+  "author": {
+    "name": "Ric Dubs",
+    "email": "ric.dubs@gmail.com"
+  },
+  "brandColor": "#E4572E",
+  "capabilities": {
+    "target_humidity": {
+      "type": "number",
+      "title": {
+        "en": "Target humidity",
+        "de": "Ziel-Luftfeuchtigkeit"
+      },
+      "getable": true,
+      "setable": true,
+      "min": 0,
+      "max": 100,
+      "step": 1,
+      "units": {
+        "en": "%"
+      },
+      "uiComponent": "slider"
+    },
+    "alarm_steamer_error": {
+      "type": "boolean",
+      "title": {
+        "en": "Steamer needs water",
+        "de": "Verdampfer benötigt Wasser"
+      },
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "insights": true
+    }
+  },
+  "drivers": [
+    {
+      "id": "sauna",
+      "name": {
+        "en": "HUUM Sauna",
+        "de": "HUUM Sauna"
+      },
+      "class": "heater",
+      "capabilities": [
+        "onoff",
+        "target_temperature",
+        "measure_temperature",
+        "alarm_generic"
+      ],
+      "capabilitiesOptions": {
+        "target_temperature": {
+          "min": 40,
+          "max": 110,
+          "step": 1,
+          "units": {
+            "en": "°C"
+          }
+        },
+        "measure_temperature": {
+          "decimals": 0
+        },
+        "alarm_generic": {
+          "title": {
+            "en": "Door open",
+            "de": "Tür offen"
+          }
+        },
+        "onoff.light": {
+          "title": {
+            "en": "Light",
+            "de": "Licht"
+          }
+        }
+      },
+      "images": {
+        "small": "/drivers/sauna/assets/images/small.png",
+        "large": "/drivers/sauna/assets/images/large.png",
+        "xlarge": "/drivers/sauna/assets/images/xlarge.png"
+      },
+      "pair": [
+        {
+          "id": "login_credentials",
+          "template": "login_credentials"
+        },
+        {
+          "id": "list_my_devices",
+          "template": "list_devices",
+          "navigation": {
+            "next": "add_my_devices"
+          }
+        },
+        {
+          "id": "add_my_devices",
+          "template": "add_devices"
+        }
+      ],
+      "repair": [
+        {
+          "id": "login_credentials",
+          "template": "login_credentials"
+        }
+      ],
+      "settings": [
+        {
+          "type": "group",
+          "label": {
+            "en": "HUUM account",
+            "de": "HUUM-Konto"
+          },
+          "children": [
+            {
+              "id": "username",
+              "type": "text",
+              "label": {
+                "en": "Email",
+                "de": "E-Mail"
+              },
+              "value": ""
+            },
+            {
+              "id": "password",
+              "type": "password",
+              "label": {
+                "en": "Password",
+                "de": "Passwort"
+              },
+              "value": ""
+            }
+          ]
+        },
+        {
+          "type": "group",
+          "label": {
+            "en": "Advanced",
+            "de": "Erweitert"
+          },
+          "children": [
+            {
+              "id": "poll_interval",
+              "type": "number",
+              "label": {
+                "en": "Polling interval (seconds)",
+                "de": "Abfrageintervall (Sekunden)"
+              },
+              "value": 30,
+              "min": 10,
+              "max": 600,
+              "hint": {
+                "en": "How often Homey asks the HUUM cloud for the current status.",
+                "de": "Wie oft Homey den aktuellen Status bei der HUUM-Cloud abfragt."
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "flow": {
+    "triggers": [
+      {
+        "id": "sauna_started",
+        "title": {
+          "en": "Sauna started heating",
+          "de": "Sauna beginnt zu heizen"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=sauna"
+          }
+        ]
+      },
+      {
+        "id": "sauna_stopped",
+        "title": {
+          "en": "Sauna stopped heating",
+          "de": "Sauna hat aufgehört zu heizen"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=sauna"
+          }
+        ]
+      },
+      {
+        "id": "steamer_needs_water",
+        "title": {
+          "en": "Steamer needs water",
+          "de": "Verdampfer benötigt Wasser"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=sauna"
+          }
+        ]
+      }
+    ],
+    "conditions": [
+      {
+        "id": "door_is_closed",
+        "title": {
+          "en": "Door !{{is|is not}} closed",
+          "de": "Tür !{{ist|ist nicht}} geschlossen"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=sauna"
+          }
+        ]
+      },
+      {
+        "id": "steamer_has_error",
+        "title": {
+          "en": "Steamer !{{has|does not have}} an error",
+          "de": "Verdampfer !{{hat|hat keinen}} Fehler"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=sauna"
+          }
+        ]
+      }
+    ],
+    "actions": [
+      {
+        "id": "start_sauna",
+        "title": {
+          "en": "Start sauna with temperature and humidity",
+          "de": "Sauna mit Temperatur und Luftfeuchtigkeit starten"
+        },
+        "titleFormatted": {
+          "en": "Start sauna at [[temperature]]°C / [[humidity]]% humidity",
+          "de": "Sauna mit [[temperature]]°C / [[humidity]]% Luftfeuchtigkeit starten"
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=sauna"
+          },
+          {
+            "type": "range",
+            "name": "temperature",
+            "title": {
+              "en": "Temperature (°C)",
+              "de": "Temperatur (°C)"
+            },
+            "min": 40,
+            "max": 110,
+            "step": 1,
+            "label": "°C",
+            "labelMultiplier": 1,
+            "labelDecimals": 0
+          },
+          {
+            "type": "range",
+            "name": "humidity",
+            "title": {
+              "en": "Humidity (%, ignored without a steamer)",
+              "de": "Luftfeuchtigkeit (%, ohne Verdampfer ignoriert)"
+            },
+            "min": 0,
+            "max": 100,
+            "step": 1,
+            "label": "%",
+            "labelMultiplier": 1,
+            "labelDecimals": 0
+          }
+        ]
+      }
+    ]
+  }
+}

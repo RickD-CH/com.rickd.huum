@@ -1,0 +1,12 @@
+{
+  "pair": {
+    "invalid_credentials": "Could not log in - please check your HUUM email and password.",
+    "default_name": "HUUM Sauna"
+  },
+  "errors": {
+    "door_open": "The sauna door is open, refusing to start heating."
+  },
+  "warnings": {
+    "emergency_stop": "The sauna reported an emergency stop. Check the heater before starting again."
+  }
+}
