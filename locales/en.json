@@ -5,5 +5,9 @@
   "errors": {
     "door_open": "Cannot start the sauna while the door is open",
     "auth_failed": "HUUM login failed. Please repair this device with your current email and password."
+  },
+  "notifications": {
+    "water_alarm_title": "{{name}}: steamer needs water.",
+    "water_alarm_body": "No water in steamer, steamer system not allowed to start"
   }
 }

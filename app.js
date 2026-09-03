@@ -11,6 +11,12 @@ class HuumApp extends Homey.App {
       .registerRunListener(async (args) => {
         await args.device.startWithTemperatureAndHumidity(args.temperature, args.humidity);
       });
+
+    this.homey.flow.getConditionCard('time_remaining_below')
+      .registerRunListener(async (args) => {
+        const remaining = args.device.getCapabilityValue('huum_time_remaining');
+        return typeof remaining === 'number' && remaining < args.minutes;
+      });
   }
 
 }
