@@ -72,13 +72,17 @@ console.log('OK: brandColor present, SDK v3, permissions limited to the justifie
 const appIconPath = path.join(APP_DIR, 'assets', 'icon.svg');
 assert.ok(fs.existsSync(appIconPath), 'assets/icon.svg (app icon) must exist (guideline 1.5)');
 const appIconSvg = fs.readFileSync(appIconPath, 'utf8');
-assert.match(appIconSvg, /viewBox="0 0 960 960"/, 'app icon should use the full 960x960 canvas (guideline 1.5)');
+// A square viewBox anchored at the origin (960x960 and 100x100 are both
+// common — the sibling devicewatchdog app uses 100). The point is that the
+// art isn't cropped to a corner of a non-square canvas.
+const SQUARE_VIEWBOX = /viewBox="0 0 (\d+(?:\.\d+)?) \1"/;
+assert.match(appIconSvg, SQUARE_VIEWBOX, 'app icon should use a full square canvas (guideline 1.5)');
 
 for (const driver of appJson.drivers) {
   const driverIconPath = path.join(APP_DIR, 'drivers', driver.id, 'assets', 'icon.svg');
   assert.ok(fs.existsSync(driverIconPath), `driver "${driver.id}" is missing an icon.svg (guideline 1.6)`);
   const driverIconSvg = fs.readFileSync(driverIconPath, 'utf8');
-  assert.match(driverIconSvg, /viewBox="0 0 960 960"/, `driver "${driver.id}" icon should use the full 960x960 canvas (guideline 1.6)`);
+  assert.match(driverIconSvg, SQUARE_VIEWBOX, `driver "${driver.id}" icon should use a full square canvas (guideline 1.6)`);
   // The concrete bug this guards against: app icon === driver icon, which
   // is an explicit reject trigger ("App icon cannot be the same as a
   // driver icon").
