@@ -3,91 +3,67 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>HUUM Sauna</title>
-  <script type="text/javascript" src="/homey.js" data-origin="settings"></script>
+  <title>HUUM UKU Sauna</title>
   <style>
     :root {
       color-scheme: light;
-      --bg: #f3f3f5;
-      --fg: #1c1c1e;
-      --muted: #6b6b72;
-      --card: #ffffff;
-      --border: rgba(0, 0, 0, .12);
-      --field: rgba(0, 0, 0, .015);
-      --accent: #E85D2B;
-      --ok: #2e9e4f;
-      --err: #d23b3b;
+      --bg: #f3f3f5; --fg: #1c1c1e; --muted: #6b6b72; --card: #fff;
+      --border: rgba(0,0,0,.12); --field: rgba(0,0,0,.02);
+      --accent: #E85D2B; --ok: #2e9e4f; --err: #d23b3b;
     }
     @media (prefers-color-scheme: dark) {
       :root:not([data-theme="light"]) {
         color-scheme: dark;
-        --bg: #17181a;
-        --fg: #f1f1f3;
-        --muted: #9a9aa2;
-        --card: #232428;
-        --border: rgba(255, 255, 255, .14);
-        --field: rgba(255, 255, 255, .04);
+        --bg: #17181a; --fg: #f1f1f3; --muted: #9a9aa2; --card: #232428;
+        --border: rgba(255,255,255,.14); --field: rgba(255,255,255,.05);
       }
     }
     :root[data-theme="dark"] {
       color-scheme: dark;
-      --bg: #17181a;
-      --fg: #f1f1f3;
-      --muted: #9a9aa2;
-      --card: #232428;
-      --border: rgba(255, 255, 255, .14);
-      --field: rgba(255, 255, 255, .04);
+      --bg: #17181a; --fg: #f1f1f3; --muted: #9a9aa2; --card: #232428;
+      --border: rgba(255,255,255,.14); --field: rgba(255,255,255,.05);
     }
     :root[data-theme="light"] {
       color-scheme: light;
-      --bg: #f3f3f5;
-      --fg: #1c1c1e;
-      --muted: #6b6b72;
-      --card: #ffffff;
-      --border: rgba(0, 0, 0, .12);
-      --field: rgba(0, 0, 0, .015);
+      --bg: #f3f3f5; --fg: #1c1c1e; --muted: #6b6b72; --card: #fff;
+      --border: rgba(0,0,0,.12); --field: rgba(0,0,0,.02);
     }
-
-    body {
-      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-      margin: 0; padding: 16px; line-height: 1.45;
-      background: var(--bg); color: var(--fg);
-    }
-    h1 { font-size: 20px; margin: 0 0 12px; }
-    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 24px 0 8px; }
+    body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 14px; line-height: 1.45; background: var(--bg); color: var(--fg); }
+    h1 { font-size: 19px; margin: 0; }
+    h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 22px 0 8px; }
+    .toprow { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .toprow select { width: auto; }
+    .tabs { display: flex; gap: 4px; overflow-x: auto; margin: 14px 0 4px; -webkit-overflow-scrolling: touch; }
+    .tab { flex: 0 0 auto; background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--muted); font-size: 14px; font-weight: 600; padding: 8px 12px; cursor: pointer; white-space: nowrap; }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .panel { display: none; }
+    .panel.active { display: block; }
     .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
     .row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; }
     .row .k { color: var(--muted); }
     .row .v { font-weight: 600; text-align: right; }
     label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 3px; }
-    input[type=text], input[type=number], select {
-      width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 14px;
-      border: 1px solid var(--border); border-radius: 8px; background: var(--field); color: inherit;
-    }
+    input[type=text], input[type=number], select { width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--field); color: inherit; }
     .profile { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 8px; }
     .profile:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
-    .grid3 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
     .btnrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
-    button {
-      padding: 9px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
-      border: 0; border-radius: 8px; background: var(--accent); color: #fff;
-    }
-    button.ghost { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    button.action { padding: 9px 18px; font-size: 14px; font-weight: 600; cursor: pointer; border: 0; border-radius: 8px; background: var(--accent); color: #fff; }
+    button.ghost { padding: 9px 16px; font-size: 14px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--fg); }
     button:disabled { opacity: .5; cursor: default; }
     .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+    p { font-size: 14px; }
     .radio { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 14px; }
     .radio input { width: auto; }
     .radio label { margin: 0; color: inherit; }
     .saved { color: var(--ok); font-size: 13px; }
     .err { color: var(--err); font-size: 13px; margin-top: 8px; }
-    .toprow { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 4px; }
-    .toprow select { width: auto; min-width: 120px; }
     [hidden] { display: none !important; }
   </style>
 </head>
 <body>
   <div class="toprow">
-    <h1 id="title">HUUM Sauna</h1>
+    <h1 id="title">HUUM UKU Sauna</h1>
     <select id="theme" title="Theme">
       <option value="auto">Auto</option>
       <option value="light">Light</option>
@@ -101,71 +77,94 @@
   </div>
 
   <div id="content" hidden>
-    <h2 id="h-info">Sauna</h2>
-    <div class="card" id="info"></div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="overview" id="t-overview">Overview</button>
+      <button class="tab" data-tab="profiles" id="t-profiles">Profiles</button>
+      <button class="tab" data-tab="advanced" id="t-advanced">Advanced</button>
+      <button class="tab" data-tab="energy" id="t-energy">Energy</button>
+      <button class="tab" data-tab="support" id="t-support">Support</button>
+    </nav>
 
-    <h2 id="h-profiles">Profiles</h2>
-    <div class="card">
-      <div id="profiles"></div>
-      <div class="btnrow">
-        <button id="save-profiles" type="button">Save</button>
-        <button id="reset-profiles" type="button" class="ghost">Reset to defaults</button>
-        <span class="saved" id="saved-profiles" hidden>Saved</span>
+    <div class="panel active" id="panel-overview">
+      <h2 id="h-info">Sauna</h2>
+      <div class="card" id="info"></div>
+      <h2 id="h-stats">Statistics</h2>
+      <div class="card" id="stats"></div>
+    </div>
+
+    <div class="panel" id="panel-profiles">
+      <div class="card">
+        <div id="profiles"></div>
+        <div class="btnrow">
+          <button id="save-profiles" type="button" class="action">Save</button>
+          <button id="reset-profiles" type="button" class="ghost">Reset to defaults</button>
+          <span class="saved" id="saved-profiles" hidden>Saved</span>
+        </div>
       </div>
     </div>
 
-    <h2 id="h-advanced">Advanced</h2>
-    <div class="card">
-      <label id="l-poll">Status refresh while heating (sec)</label>
-      <input type="number" id="pollInterval" min="10" max="300" step="5" />
-      <label id="l-idle">Status refresh while idle (sec)</label>
-      <input type="number" id="idlePollInterval" min="60" max="1800" step="30" />
-      <label id="l-finish">"Finishing soon" threshold (min)</label>
-      <input type="number" id="finishingSoonThresholdMinutes" min="1" max="60" step="1" />
-      <div class="btnrow">
-        <button id="save-advanced" type="button">Save</button>
-        <span class="saved" id="saved-advanced" hidden>Saved</span>
+    <div class="panel" id="panel-advanced">
+      <div class="card">
+        <label id="l-poll">Status refresh while heating (sec)</label>
+        <input type="number" id="pollInterval" min="10" max="300" step="5" />
+        <label id="l-idle">Status refresh while idle (sec)</label>
+        <input type="number" id="idlePollInterval" min="60" max="1800" step="30" />
+        <label id="l-finish">"Finishing soon" threshold (min)</label>
+        <input type="number" id="finishingSoonThresholdMinutes" min="1" max="60" step="1" />
+        <div class="btnrow">
+          <button id="save-advanced" type="button" class="action">Save</button>
+          <span class="saved" id="saved-advanced" hidden>Saved</span>
+        </div>
       </div>
     </div>
 
-    <h2 id="h-power">Heater power (Energy estimate)</h2>
-    <div class="card">
-      <div class="radio">
-        <input type="radio" name="powerSource" id="ps-estimate" value="estimate" />
-        <label for="ps-estimate" id="l-ps-estimate">Estimate from a kW value</label>
+    <div class="panel" id="panel-energy">
+      <h2 id="h-power">Heater power</h2>
+      <div class="card">
+        <div class="radio">
+          <input type="radio" name="powerSource" id="ps-estimate" value="estimate" />
+          <label for="ps-estimate" id="l-ps-estimate">Estimate from a kW value</label>
+        </div>
+        <div id="estimate-box">
+          <label id="l-kw">Heater power (kW)</label>
+          <input type="number" id="heaterPowerKw" min="1" max="15" step="0.5" />
+        </div>
+        <div class="radio">
+          <input type="radio" name="powerSource" id="ps-meter" value="meter" />
+          <label for="ps-meter" id="l-ps-meter">Measure with a device</label>
+        </div>
+        <div id="meter-box">
+          <select id="powerMeterId"></select>
+          <div class="hint" id="meter-hint">Pick a device that reports power (e.g. your Shelly).</div>
+          <div class="err" id="meter-err" hidden></div>
+        </div>
+        <div class="btnrow">
+          <button id="save-power" type="button" class="action">Save</button>
+          <span class="saved" id="saved-power" hidden>Saved</span>
+        </div>
       </div>
-      <div id="estimate-box">
-        <label id="l-kw">Heater power (kW)</label>
-        <input type="number" id="heaterPowerKw" min="1" max="15" step="0.5" />
-      </div>
-      <div class="radio">
-        <input type="radio" name="powerSource" id="ps-meter" value="meter" />
-        <label for="ps-meter" id="l-ps-meter">Measure with a device</label>
-      </div>
-      <div id="meter-box">
-        <select id="powerMeterId"></select>
-        <div class="hint" id="meter-hint">Pick a device that reports power (e.g. your Shelly). Its live wattage is mirrored onto the sauna and used by the Energy tab.</div>
-        <div class="err" id="meter-err" hidden></div>
-      </div>
-      <div class="btnrow">
-        <button id="save-power" type="button">Save</button>
-        <span class="saved" id="saved-power" hidden>Saved</span>
+
+      <h2 id="h-costs">Costs</h2>
+      <div class="card">
+        <label id="l-price">Electricity price per kWh</label>
+        <input type="number" id="electricityPrice" min="0" step="0.01" />
+        <div class="hint" id="price-hint">Leave at 0 to hide costs.</div>
+        <div class="btnrow">
+          <button id="save-costs" type="button" class="action">Save</button>
+          <span class="saved" id="saved-costs" hidden>Saved</span>
+        </div>
       </div>
     </div>
 
-    <h2 id="h-costs">Costs</h2>
-    <div class="card">
-      <label id="l-price">Electricity price per kWh</label>
-      <input type="number" id="electricityPrice" min="0" step="0.01" />
-      <div class="hint" id="price-hint">Leave at 0 to hide costs. Uses the linked power meter when set, otherwise the kW estimate above.</div>
-      <div class="btnrow">
-        <button id="save-costs" type="button">Save</button>
-        <span class="saved" id="saved-costs" hidden>Saved</span>
+    <div class="panel" id="panel-support">
+      <div class="card">
+        <p id="s-about">Independent, unofficial app for HUUM UKU saunas — not affiliated with HUUM.</p>
+        <div class="btnrow">
+          <button id="btn-donate" type="button" class="action">☕ Donate (PayPal)</button>
+          <button id="btn-github" type="button" class="ghost">Report an issue</button>
+        </div>
       </div>
     </div>
-
-    <h2 id="h-stats">Statistics</h2>
-    <div class="card" id="stats"></div>
   </div>
 
   <div class="card" id="empty" hidden>
@@ -173,6 +172,332 @@
   </div>
   <div class="err" id="fatal" hidden></div>
 
-  <script type="text/javascript" src="index.js"></script>
+  <script type="text/javascript" src="/homey.js" data-origin="settings"></script>
+  <script type="text/javascript">
+    var DE = (navigator.language || 'en').toLowerCase().indexOf('de') === 0;
+    var T = DE ? {
+      picker: 'Sauna', tabs: ['Übersicht', 'Profile', 'Erweitert', 'Energie', 'Support'],
+      info: 'Sauna', stats: 'Statistik',
+      poll: 'Statusabruf beim Heizen (Sek.)', idle: 'Statusabruf im Standby (Sek.)',
+      finish: 'Schwelle "bald fertig" (Min.)',
+      hPower: 'Ofenleistung', hCosts: 'Kosten',
+      psEstimate: 'Aus kW-Wert schätzen', psMeter: 'Mit einem Gerät messen',
+      kw: 'Ofenleistung (kW)', price: 'Strompreis pro kWh',
+      priceHint: '0 lassen, um Kosten auszublenden. Nutzt das verknüpfte Messgerät, sonst die kW-Schätzung.',
+      meterHint: 'Wähle ein Gerät, das Leistung meldet (z. B. deinen Shelly). Seine Live-Watt werden auf die Sauna gespiegelt.',
+      meterNone: 'Kein Messgerät gefunden.',
+      meterNoPerm: 'Geräteliste nicht verfügbar (fehlende Berechtigung). Nutze die kW-Schätzung.',
+      save: 'Speichern', saved: 'Gespeichert', resetProfiles: 'Auf Standard zurücksetzen',
+      about: 'Unabhängige, inoffizielle App für HUUM-UKU-Saunas — nicht mit HUUM verbunden.',
+      donate: '☕ Unterstützen (PayPal)', github: 'Fehler melden',
+      empty: 'Noch keine Sauna gekoppelt. Füge zuerst eine unter "Geräte" hinzu.',
+      name: 'Name', temp: 'Temperatur (°C)', hum: 'Feuchte (%)',
+      fAvailable: 'Verfügbar', fStatus: 'Status', fHeating: 'Heizt', fCurTemp: 'Aktuelle Temperatur',
+      fTgtTemp: 'Zieltemperatur', fCurHum: 'Aktuelle Feuchte', fTgtHum: 'Zielfeuchte',
+      fRemaining: 'Restzeit (Min.)', fDoor: 'Tür offen', fPower: 'Leistung (W)',
+      fSteamer: 'Verdampfer angeschlossen', fLight: 'Licht/Lüfter angeschlossen',
+      fChildLock: 'Kindersicherung', fRemote: 'Fernsicherheitsstatus',
+      fPayment: 'Abo gültig bis', fLimits: 'Gemeldete Grenzen',
+      sSessions: 'Sitzungen', sTotal: 'Gesamte Heizzeit', sTotalKwh: 'Gesamt-Verbrauch',
+      sTotalCost: 'Gesamt-Kosten', sLast: 'Letzte Sitzung',
+      yes: 'Ja', no: 'Nein', none: '–',
+      themeAuto: 'Automatisch', themeLight: 'Hell', themeDark: 'Dunkel',
+    } : {
+      picker: 'Sauna', tabs: ['Overview', 'Profiles', 'Advanced', 'Energy', 'Support'],
+      info: 'Sauna', stats: 'Statistics',
+      poll: 'Status refresh while heating (sec)', idle: 'Status refresh while idle (sec)',
+      finish: '"Finishing soon" threshold (min)',
+      hPower: 'Heater power', hCosts: 'Costs',
+      psEstimate: 'Estimate from a kW value', psMeter: 'Measure with a device',
+      kw: 'Heater power (kW)', price: 'Electricity price per kWh',
+      priceHint: 'Leave at 0 to hide costs. Uses the linked power meter when set, otherwise the kW estimate.',
+      meterHint: 'Pick a device that reports power (e.g. your Shelly). Its live wattage is mirrored onto the sauna.',
+      meterNone: 'No power-measuring device found.',
+      meterNoPerm: 'Device list unavailable (missing permission). Use the kW estimate.',
+      save: 'Save', saved: 'Saved', resetProfiles: 'Reset to defaults',
+      about: 'Independent, unofficial app for HUUM UKU saunas — not affiliated with HUUM.',
+      donate: '☕ Donate (PayPal)', github: 'Report an issue',
+      empty: 'No sauna paired yet. Add one from Devices first.',
+      name: 'Name', temp: 'Temperature (°C)', hum: 'Humidity (%)',
+      fAvailable: 'Available', fStatus: 'Status', fHeating: 'Heating', fCurTemp: 'Current temperature',
+      fTgtTemp: 'Target temperature', fCurHum: 'Current humidity', fTgtHum: 'Target humidity',
+      fRemaining: 'Time remaining (min)', fDoor: 'Door open', fPower: 'Power (W)',
+      fSteamer: 'Steamer connected', fLight: 'Light/fan connected',
+      fChildLock: 'Child lock', fRemote: 'Remote safety state',
+      fPayment: 'Subscription valid until', fLimits: 'Reported limits',
+      sSessions: 'Sessions', sTotal: 'Total heating time', sTotalKwh: 'Total energy',
+      sTotalCost: 'Total cost', sLast: 'Last session',
+      yes: 'Yes', no: 'No', none: '–',
+      themeAuto: 'Automatic', themeLight: 'Light', themeDark: 'Dark',
+    };
+
+    var HomeyRef = null;
+    var saunas = [];
+    var currentId = null;
+    var timer = null;
+
+    function $(id) { return document.getElementById(id); }
+    function setTxt(id, txt) { var el = $(id); if (el) el.textContent = txt; }
+    function esc(s) {
+      return String(s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function fmtDur(min) {
+      var h = Math.floor(min / 60); var m = min % 60;
+      return h > 0 ? (h + 'h ' + m + 'm') : (m + 'm');
+    }
+    function rows(list) {
+      return list.map(function (r) {
+        return '<div class="row"><span class="k">' + esc(r[0]) + '</span><span class="v">' + esc(String(r[1])) + '</span></div>';
+      }).join('');
+    }
+    function showFatal(err) {
+      var el = $('fatal');
+      el.textContent = String((err && err.message) || err);
+      el.hidden = false;
+    }
+    function flash(id) {
+      var el = $(id); el.hidden = false;
+      setTimeout(function () { el.hidden = true; }, 2000);
+    }
+
+    function api(method, path, body) {
+      return new Promise(function (resolve, reject) {
+        var done = false;
+        var to = setTimeout(function () { if (!done) { done = true; reject(new Error('Timeout: ' + method + ' ' + path)); } }, 12000);
+        try {
+          HomeyRef.api(method, path, body || null, function (err, result) {
+            if (done) return; done = true; clearTimeout(to);
+            if (err) reject(err instanceof Error ? err : new Error(typeof err === 'string' ? err : JSON.stringify(err)));
+            else resolve(result);
+          });
+        } catch (e) { if (!done) { done = true; clearTimeout(to); reject(e); } }
+      });
+    }
+
+    function applyTheme(v) {
+      v = (v === 'light' || v === 'dark') ? v : 'auto';
+      if (v === 'auto') document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', v);
+      $('theme').value = v;
+    }
+
+    function applyText() {
+      setTxt('picker-label', T.picker);
+      var ids = ['t-overview', 't-profiles', 't-advanced', 't-energy', 't-support'];
+      for (var i = 0; i < ids.length; i++) setTxt(ids[i], T.tabs[i]);
+      setTxt('h-info', T.info); setTxt('h-stats', T.stats);
+      setTxt('l-poll', T.poll); setTxt('l-idle', T.idle); setTxt('l-finish', T.finish);
+      setTxt('h-power', T.hPower); setTxt('h-costs', T.hCosts);
+      setTxt('l-ps-estimate', T.psEstimate); setTxt('l-ps-meter', T.psMeter);
+      setTxt('l-kw', T.kw); setTxt('l-price', T.price); setTxt('price-hint', T.priceHint);
+      setTxt('meter-hint', T.meterHint);
+      setTxt('s-about', T.about); setTxt('btn-donate', T.donate); setTxt('btn-github', T.github);
+      setTxt('empty-text', T.empty); setTxt('reset-profiles', T.resetProfiles);
+      ['save-profiles', 'save-advanced', 'save-power', 'save-costs'].forEach(function (b) { setTxt(b, T.save); });
+      ['saved-profiles', 'saved-advanced', 'saved-power', 'saved-costs'].forEach(function (s) { setTxt(s, T.saved); });
+      var th = $('theme');
+      th.options[0].textContent = T.themeAuto; th.options[1].textContent = T.themeLight; th.options[2].textContent = T.themeDark;
+    }
+
+    function renderInfo(s) {
+      var i = s.info || {};
+      $('info').innerHTML = rows([
+        [T.fAvailable, s.available ? T.yes : T.no],
+        [T.fStatus, i.currentStatus || s.statusText || T.none],
+        [T.fHeating, s.heating ? T.yes : T.no],
+        [T.fCurTemp, s.measureTemperature == null ? T.none : (s.measureTemperature + ' °C')],
+        [T.fTgtTemp, s.targetTemperature == null ? T.none : (s.targetTemperature + ' °C')],
+        [T.fCurHum, s.measureHumidity == null ? T.none : (Math.round(s.measureHumidity * 100) + ' %')],
+        [T.fTgtHum, s.targetHumidity == null ? T.none : (Math.round(s.targetHumidity * 100) + ' %')],
+        [T.fRemaining, s.timeRemaining == null ? T.none : s.timeRemaining],
+        [T.fDoor, s.doorOpen == null ? T.none : (s.doorOpen ? T.yes : T.no)],
+        [T.fPower, s.measurePower == null ? T.none : (Math.round(s.measurePower) + ' W')],
+        [T.fSteamer, i.steamerInstalled || T.none],
+        [T.fLight, i.lightInstalled || T.none],
+        [T.fChildLock, i.childLock || T.none],
+        [T.fRemote, i.remoteSafetyState || T.none],
+        [T.fPayment, i.paymentEndDate || T.none],
+        [T.fLimits, i.deviceLimits || T.none],
+      ]);
+    }
+
+    function renderStats(s) {
+      var st = s.stats || {}; var last = st.lastSession; var lastTxt = T.none;
+      if (last) {
+        var p = [new Date(last.startedAt).toLocaleString() + ' (' + fmtDur(last.durationMinutes) + ')', (last.temperature == null ? '?' : last.temperature) + '°C'];
+        if (last.humidity > 0) p.push(last.humidity + '%');
+        if (last.kwh > 0) p.push(last.kwh + ' kWh');
+        if (last.cost > 0) p.push(String(last.cost));
+        lastTxt = p.join(', ');
+      }
+      var r = [[T.sSessions, st.sessionCount || 0], [T.sTotal, fmtDur(st.totalHeatingMinutes || 0)]];
+      if (st.totalKwh > 0) r.push([T.sTotalKwh, (Math.round(st.totalKwh * 10) / 10) + ' kWh']);
+      if (st.totalCost > 0) r.push([T.sTotalCost, String(Math.round(st.totalCost * 100) / 100)]);
+      r.push([T.sLast, lastTxt]);
+      $('stats').innerHTML = rows(r);
+    }
+
+    function renderProfiles(cfg) {
+      var hasSteamer = cfg.hasSteamer;
+      $('profiles').innerHTML = cfg.profiles.map(function (p, idx) {
+        return '<div class="profile">'
+          + '<label>' + T.name + '</label>'
+          + '<input type="text" data-p="' + idx + '" data-f="name" value="' + esc(p.name || '') + '" maxlength="40" />'
+          + '<div class="grid2">'
+          + '<div><label>' + T.temp + '</label><input type="number" data-p="' + idx + '" data-f="temperature" min="40" max="110" step="1" value="' + (p.temperature == null ? '' : p.temperature) + '" /></div>'
+          + '<div' + (hasSteamer ? '' : ' style="opacity:.4"') + '><label>' + T.hum + '</label><input type="number" data-p="' + idx + '" data-f="humidity" min="0" max="90" step="5" value="' + (p.humidity == null ? '' : p.humidity) + '" ' + (hasSteamer ? '' : 'disabled') + ' /></div>'
+          + '</div></div>';
+      }).join('');
+    }
+
+    function renderAdvanced(cfg) {
+      $('pollInterval').value = cfg.advanced.pollInterval;
+      $('idlePollInterval').value = cfg.advanced.idlePollInterval;
+      $('finishingSoonThresholdMinutes').value = cfg.advanced.finishingSoonThresholdMinutes;
+    }
+
+    function renderPower(cfg) {
+      var meter = cfg.power.source === 'meter';
+      $('ps-estimate').checked = !meter;
+      $('ps-meter').checked = meter;
+      $('heaterPowerKw').value = cfg.power.heaterPowerKw;
+      $('estimate-box').hidden = meter;
+      $('meter-box').hidden = !meter;
+    }
+
+    function renderCosts(cfg) {
+      $('electricityPrice').value = (cfg.costs && cfg.costs.electricityPrice) || 0;
+    }
+
+    function powerBoxes() {
+      var meter = $('ps-meter').checked;
+      $('estimate-box').hidden = meter;
+      $('meter-box').hidden = !meter;
+    }
+
+    function loadMeters(selectedId) {
+      var sel = $('powerMeterId'); sel.innerHTML = '';
+      return api('GET', '/power-meters').then(function (res) {
+        if (!res || !res.available) { $('meter-err').textContent = T.meterNoPerm; $('meter-err').hidden = false; return; }
+        $('meter-err').hidden = true;
+        if (!res.devices.length) { $('meter-err').textContent = T.meterNone; $('meter-err').hidden = false; }
+        res.devices.forEach(function (d) {
+          var o = document.createElement('option');
+          o.value = d.id;
+          o.textContent = d.power == null ? d.name : (d.name + ' — ' + Math.round(d.power) + ' W');
+          if (d.id === selectedId) o.selected = true;
+          sel.appendChild(o);
+        });
+      }).catch(function (err) { $('meter-err').textContent = String(err.message || err); $('meter-err').hidden = false; });
+    }
+
+    function selectSauna(id) {
+      currentId = id;
+      var s = null;
+      for (var i = 0; i < saunas.length; i++) if (saunas[i].id === id) s = saunas[i];
+      if (!s) return Promise.resolve();
+      renderInfo(s); renderStats(s);
+      var p = s.config ? Promise.resolve(s.config) : api('GET', '/device/' + encodeURIComponent(id) + '/config');
+      return p.then(function (cfg) {
+        renderProfiles(cfg); renderAdvanced(cfg); renderPower(cfg); renderCosts(cfg);
+        return loadMeters(cfg.power.meterId);
+      });
+    }
+
+    function refresh() {
+      return api('GET', '/overview').then(function (list) {
+        saunas = Array.isArray(list) ? list : [];
+        if (!saunas.length) { $('content').hidden = true; $('empty').hidden = false; return; }
+        $('empty').hidden = true; $('content').hidden = false;
+        var picker = $('picker');
+        if (saunas.length > 1) {
+          $('picker-wrap').hidden = false;
+          picker.innerHTML = saunas.map(function (s) { return '<option value="' + esc(s.id) + '">' + esc(s.name) + '</option>'; }).join('');
+          if (currentId) picker.value = currentId;
+        } else { $('picker-wrap').hidden = true; }
+        var s = saunas[0];
+        for (var i = 0; i < saunas.length; i++) if (saunas[i].id === currentId) s = saunas[i];
+        renderInfo(s); renderStats(s);
+        if (currentId !== s.id) return selectSauna(s.id);
+      }).catch(function () { /* keep last render */ });
+    }
+
+    function saveConfig(body, savedId, rerender) {
+      return api('PUT', '/device/' + encodeURIComponent(currentId) + '/config', body).then(function (cfg) {
+        if (rerender) rerender(cfg);
+        flash(savedId);
+      }).catch(showFatal);
+    }
+
+    function wire() {
+      $('theme').addEventListener('change', function (e) {
+        applyTheme(e.target.value);
+        try { HomeyRef.set('uiTheme', e.target.value, function () {}); } catch (x) {}
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (btn) {
+        btn.addEventListener('click', function () {
+          Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) { b.classList.remove('active'); });
+          Array.prototype.forEach.call(document.querySelectorAll('.panel'), function (p) { p.classList.remove('active'); });
+          btn.classList.add('active');
+          $('panel-' + btn.dataset.tab).classList.add('active');
+        });
+      });
+      $('picker').addEventListener('change', function (e) { selectSauna(e.target.value).catch(showFatal); });
+      $('ps-estimate').addEventListener('change', powerBoxes);
+      $('ps-meter').addEventListener('change', powerBoxes);
+
+      $('reset-profiles').addEventListener('click', function () {
+        saveConfig({ resetProfiles: true }, 'saved-profiles', renderProfiles);
+      });
+      $('save-profiles').addEventListener('click', function () {
+        var profiles = [0, 1, 2].map(function (idx) {
+          function g(f) { return document.querySelector('[data-p="' + idx + '"][data-f="' + f + '"]'); }
+          return {
+            name: g('name').value,
+            temperature: g('temperature').value === '' ? null : Number(g('temperature').value),
+            humidity: g('humidity').value === '' ? null : Number(g('humidity').value),
+          };
+        });
+        saveConfig({ profiles: profiles }, 'saved-profiles', renderProfiles);
+      });
+      $('save-advanced').addEventListener('click', function () {
+        saveConfig({ advanced: {
+          pollInterval: Number($('pollInterval').value),
+          idlePollInterval: Number($('idlePollInterval').value),
+          finishingSoonThresholdMinutes: Number($('finishingSoonThresholdMinutes').value),
+        } }, 'saved-advanced', null);
+      });
+      $('save-power').addEventListener('click', function () {
+        saveConfig({ power: {
+          source: $('ps-meter').checked ? 'meter' : 'estimate',
+          meterId: $('ps-meter').checked ? ($('powerMeterId').value || null) : null,
+          heaterPowerKw: Number($('heaterPowerKw').value),
+        } }, 'saved-power', renderPower);
+      });
+      $('save-costs').addEventListener('click', function () {
+        saveConfig({ costs: { electricityPrice: Number($('electricityPrice').value) || 0 } }, 'saved-costs', renderCosts);
+      });
+      $('btn-donate').addEventListener('click', function () { try { HomeyRef.openURL('https://paypal.me/RickDch'); } catch (x) {} });
+      $('btn-github').addEventListener('click', function () { try { HomeyRef.openURL('https://github.com/RickD-CH/com.rickd.huum/issues'); } catch (x) {} });
+    }
+
+    function onHomeyReady(homey) {
+      HomeyRef = homey;
+      try { homey.ready(); } catch (e) {}
+      try {
+        applyText();
+        wire();
+      } catch (e) { showFatal(e); return; }
+      try { homey.get('uiTheme', function (err, val) { applyTheme(err ? 'auto' : val); }); } catch (e) {}
+      refresh().then(function () {
+        if (saunas.length && currentId == null) return selectSauna(saunas[0].id);
+      }).catch(showFatal);
+      timer = setInterval(function () { refresh().catch(function () {}); }, 10000);
+      window.addEventListener('unload', function () { clearInterval(timer); });
+    }
+    window.onHomeyReady = onHomeyReady;
+  </script>
 </body>
 </html>

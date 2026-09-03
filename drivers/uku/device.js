@@ -108,13 +108,13 @@ class HuumDevice extends Homey.Device {
   }
 
   async onSettings({ changedKeys }) {
-    // The only editable device settings left here are the Sensors/hardware
-    // group and the water-alarm notification toggle. A sensor-presence
-    // change can add or remove capabilities.
     if (changedKeys.includes('waterSensorMode') || changedKeys.includes('doorSensorMode')) {
       const status = this._lastStatus || {};
       await this._reconcileCapabilities(status).catch((err) => this.error('Reconcile after settings failed:', err.message));
       await this._applyStatus(status).catch((err) => this.error('Apply after settings failed:', err.message));
+    }
+    if (changedKeys.includes('showWarningBanner')) {
+      await this._syncWarnings(this._lastStatus || {}).catch((err) => this.error('Warning sync failed:', err.message));
     }
   }
 
@@ -554,6 +554,10 @@ class HuumDevice extends Homey.Device {
    */
   async _syncWarnings(status) {
     if (typeof this.setWarning !== 'function') return;
+    if (this.getSetting('showWarningBanner') === false) {
+      if (this._lastWarning) { this._lastWarning = ''; await this.unsetWarning().catch(this.error); }
+      return;
+    }
     const parts = [];
     if (typeof status.remoteSafetyState === 'string' && status.remoteSafetyState.toLowerCase() !== 'safe') {
       parts.push(this.homey.__('warnings.remote_disabled'));

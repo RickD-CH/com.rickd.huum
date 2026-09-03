@@ -457,6 +457,19 @@
                 "de": "Sendet eine Homey-Benachrichtigung, sobald der Verdampfer meldet, dass Wasser nachgefüllt werden muss — zusätzlich zum Wasseralarm, den du auch in Flows nutzen kannst. Funktioniert nur, wenn dein Verdampfer einen Wasserstandssensor hat (siehe Sensoren / Hardware)."
               },
               "value": true
+            },
+            {
+              "id": "showWarningBanner",
+              "type": "checkbox",
+              "label": {
+                "en": "Show a warning banner on the device",
+                "de": "Warnbanner am Gerät anzeigen"
+              },
+              "hint": {
+                "en": "Shows the orange banner (\"remote control disabled\", \"door is open\") on the device page. Homey's warning banners can't be dismissed by hand — they clear on their own once the condition is gone. Turn this off to hide it entirely.",
+                "de": "Zeigt das orange Banner (\"Fernsteuerung deaktiviert\", \"Tür ist offen\") auf der Geräteseite. Homeys Warnbanner lassen sich nicht von Hand schließen — sie verschwinden von selbst, sobald die Ursache weg ist. Hier ausschalten, um es ganz auszublenden."
+              },
+              "value": true
             }
           ]
         },
