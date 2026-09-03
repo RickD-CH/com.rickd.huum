@@ -58,7 +58,11 @@ class Device {
   log() {}
 }
 
-class Driver {}
+class Driver {
+  log() {}
+
+  error() {}
+}
 
 class App {}
 

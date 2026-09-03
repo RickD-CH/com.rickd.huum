@@ -1,4 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <path fill="#000000" d="M50 6C38 22 30 33 30 46c0 12 9 22 20 22s20-10 20-22c0-6-2-11-5-16 1 6-1 11-5 14 2-8-1-16-10-24 2 7 0 13-5 18-4 4-6 9-6 14 0 8 6 14 14 14 6 0 11-4 13-9 3 8-2 20-14 26-14-4-24-16-24-31C48 40 40 26 50 6z"/>
-  <path fill="#000000" opacity="0.55" d="M70 60c4 4 6 9 6 14 0 11-9 20-20 20s-20-9-20-20c0-5 2-10 6-14 0 8 4 15 14 15s14-7 14-15z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 960">
+  <!-- Driver icon: the UKU heater unit itself, from a side/three-quarter
+       angle (per guideline: prefer an angled view over front-facing).
+       Deliberately a different composition from the app icon (outline
+       only, transparent background) — must not reuse the app icon. -->
+  <g fill="none" stroke="#000000" stroke-width="30" stroke-linecap="round" stroke-linejoin="round">
+    <!-- wall mount -->
+    <line x1="120" y1="260" x2="120" y2="760"/>
+    <line x1="120" y1="330" x2="200" y2="310"/>
+    <line x1="120" y1="690" x2="200" y2="710"/>
+
+    <!-- cabinet, angled (back edge shorter/offset for a side-view feel) -->
+    <path d="M200 300 L740 230 L740 760 L200 830 Z"/>
+
+    <!-- heating grille on the front face -->
+    <line x1="260" y1="420" x2="660" y2="380"/>
+    <line x1="260" y1="500" x2="660" y2="465"/>
+    <line x1="260" y1="580" x2="660" y2="550"/>
+    <line x1="260" y1="660" x2="660" y2="635"/>
+
+    <!-- sauna stones, foreshortened along the top opening -->
+    <ellipse cx="330" cy="300" rx="28" ry="16"/>
+    <ellipse cx="420" cy="285" rx="30" ry="16"/>
+    <ellipse cx="515" cy="272" rx="28" ry="15"/>
+    <ellipse cx="605" cy="260" rx="26" ry="14"/>
+  </g>
 </svg>

@@ -126,8 +126,35 @@ drivers/uku/
   driver.js            Pairing (email/password login) + device discovery
   device.js             Device logic: polling, capability listeners
 locales/               en/de translations
-assets/, drivers/uku/assets/   Icons & images (placeholders — swap for real art)
+assets/, drivers/uku/assets/   Icons & images
+test/                  Unit tests (npm test) — see "Running the tests"
+README.md              This file (developer docs, not read by the App Store)
+README.txt/.de.txt     App Store readme (plain text, required by guideline 1.3)
 ```
+
+## Multiple HUUM controllers
+
+Yes — this already works today, no changes needed. A HUUM account maps to
+exactly one sauna (the cloud API has no per-sauna ID — your login *is* the
+sauna), so **one Homey device per HUUM account**. To add a second sauna,
+just run "Add device" again and log in with that sauna's own HUUM account;
+you end up with two independent Homey devices, each with its own stored
+credentials, its own polling loop, its own detected capabilities (steamer/
+light), and its own settings. Nothing in this app is a shared singleton —
+`test/driver.test.js`'s `testMultipleSaunasPairAsIndependentDevices` pairs
+two accounts back-to-back and asserts they come out as two distinct
+devices with independently-detected hardware.
+
+There's no app-level (global) settings page, and there doesn't need to be
+one: every setting here — poll intervals, the water-alarm notification
+toggle, heater power for the Energy estimate — is genuinely per-sauna
+(different saunas can have different heaters, different Wi-Fi quality,
+different owners' notification preferences), so they belong on each
+device's own settings page, which is exactly where they already are. A
+global settings page would only earn its place if some preference should
+apply identically to *every* paired sauna at once (e.g. "mute all water
+alerts") — if you want that, say so and it's a small addition; nothing
+about the current per-device design would need to change to add it.
 
 ## Running / testing this app
 
@@ -162,9 +189,22 @@ npm test
   base classes the real Homey firmware injects at runtime, which don't
   exist in the `homey` CLI npm package). Covers the exception-handling
   behaviour described below, capability reconciliation, and adaptive
-  polling — see the file for what's covered.
+  polling.
+- `test/driver.test.js` — `drivers/uku/driver.js` pairing and repair
+  against the same stub, including the "multiple HUUM controllers"
+  scenario above and steamer/light detection at pairing time.
+- `test/locales.test.js` — asserts `locales/en.json` and `locales/de.json`
+  declare exactly the same keys with the same `{{placeholders}}`, and that
+  every en/de text object inline in `app.json` has a non-empty German
+  translation. Catches sporadic/missing translations automatically instead
+  of relying on someone noticing.
+- `test/manifest.test.js` — regression guard for the mechanically-checkable
+  Homey App Store Guidelines (see below): app/driver icon and image
+  presence, exact pixel dimensions, the app icon not being identical to a
+  driver icon, no parentheses/When-And-Then in Flow titles, README.txt
+  existing with no Markdown/URLs, and a few more.
 
-Neither test suite touches the network or a real Homey — they're the
+None of the test suites touch the network or a real Homey — they're the
 fast, repeatable substitute for that until this app has actually run on
 real hardware.
 
@@ -185,6 +225,39 @@ Homey doesn't show "action failed" for something that actually worked.
 This is covered by `test/device.test.js`, which runs `drivers/uku/device.js`
 against a stub Homey runtime and specifically simulates a successful
 action whose immediate refresh fails (see "Running the tests" below).
+
+## App Store guideline audit
+
+Checked against the actual [Homey App Store Guidelines](https://apps.developer.homey.app/app-store/guidelines)
+— specifically the machine-checkable subset used by Homey's own review AI
+(`homey-lib`'s bundled `guidelines.md`/`checklist.md`, installed with the
+CLI). Found and fixed real violations, not just theoretical ones:
+
+- **App icon was a filled illustration** (two solid black shapes) — guideline
+  1.5 requires line-work only, no fills/gradients/background. Redrawn as an
+  actual outline icon (heater cabinet + rising steam, stroke-only).
+- **App icon and driver icon were byte-identical** — an explicit reject
+  trigger ("App icon cannot be the same as a driver icon"). Driver icon
+  redrawn as a distinct angled side-view of the heater unit.
+- **Driver images had a colored background** — guideline requires white (or
+  transparent). Regenerated on white.
+- **App images were a big two-tone unicolored shape on a monochrome
+  background** — the exact anti-pattern guideline 1.4 calls out. Regenerated
+  as a (still simple, still not photographic — see limitations below)
+  multi-element scene instead of one flat silhouette.
+- **No `README.txt`/`README.de.txt` existed at all** — Homey's App Store
+  reads *those* files, in plain text, not `README.md` (which is GitHub-only
+  documentation and is never shown to a Homey user). Added both, short,
+  no Markdown, no URLs, distinct wording from the description.
+- Description shortened and reworded so it doesn't just restate the readme.
+
+`test/manifest.test.js` now guards the mechanical parts of this list so
+they can't silently regress. What it *can't* check (and what nobody could,
+mechanically): whether the icon reads as recognisable, whether the images
+look genuinely professional — that's still a human/design judgment call,
+and honestly, hand-drawn placeholder SVGs and a tiny procedural PNG
+generator are not a substitute for real product photography/artwork if
+this is ever actually submitted to the App Store (see limitations below).
 
 ## Known limitations / TODO
 
@@ -207,8 +280,12 @@ action whose immediate refresh fails (see "Running the tests" below).
   scaffold couldn't be verified against a real Homey firmware version —
   if your firmware doesn't support one of them, the app still works, it
   just falls back to the static defaults in `app.json`.
-- Placeholder icons/images — replace `assets/icon.svg` and the generated
-  PNGs with real artwork before publishing anywhere.
+- Icons are now proper guideline-compliant line art, but the app/driver
+  **images** are still a simple procedurally-generated placeholder scene
+  (see the guideline audit above) — replace with real photography/artwork
+  before ever submitting to the App Store; a human should also sanity-check
+  the icons actually read as recognisable at a glance, which no test can
+  verify.
 - Not published to the Homey App Store; run it via `homey app run` (or
   `homey app install`) on your own Homey.
 

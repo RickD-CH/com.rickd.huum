@@ -1,12 +1,12 @@
 {
   "name": "com.rickd.huum",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Custom Homey app for HUUM sauna heaters (UKU controller) with full target humidity control.",
   "main": "app.js",
   "license": "MIT",
   "private": true,
   "author": "Ric Dubs",
   "scripts": {
-    "test": "node test/huum-api.test.js && node test/device.test.js"
+    "test": "node test/huum-api.test.js && node test/device.test.js && node test/driver.test.js && node test/locales.test.js && node test/manifest.test.js"
   }
 }
