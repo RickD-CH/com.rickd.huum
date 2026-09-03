@@ -146,10 +146,51 @@ as the official app). The app fetches `/action/home/status` once to
 validate them and to detect your sauna's name and whether it has a
 light/fan relay.
 
+### Running the tests
+
+No Homey and no HUUM account needed — everything is mocked/stubbed:
+
+```bash
+npm test
+```
+
+- `test/huum-api.test.js` — `lib/HuumApi.js` business logic (temperature/
+  humidity validation, door safety check, request payload shape, status
+  parsing). Pure Node, no dependencies.
+- `test/device.test.js` — `drivers/uku/device.js` against a stub Homey
+  runtime (`test/homey-stub/`, standing in for the `Device`/`Driver`/`App`
+  base classes the real Homey firmware injects at runtime, which don't
+  exist in the `homey` CLI npm package). Covers the exception-handling
+  behaviour described below, capability reconciliation, and adaptive
+  polling — see the file for what's covered.
+
+Neither test suite touches the network or a real Homey — they're the
+fast, repeatable substitute for that until this app has actually run on
+real hardware.
+
+## Error handling
+
+Every HUUM API call a capability listener or Flow action makes is caught
+and, where it maps to something a user can act on, translated (de/en):
+door open, wrong/expired login (also marks the device unavailable so
+Homey prompts a repair), and asking for more humidity than the steamer
+allows at the current temperature. Everything else (network errors, etc.)
+still surfaces as an error, just untranslated.
+
+Importantly, a **successful** command is never reported as failed just
+because the immediate status refresh that follows it hits a hiccup — e.g.
+turning the heater off always succeeds or fails on its own merits; if the
+follow-up `getStatus()` call then times out, that's logged, not thrown, so
+Homey doesn't show "action failed" for something that actually worked.
+This is covered by `test/device.test.js`, which runs `drivers/uku/device.js`
+against a stub Homey runtime and specifically simulates a successful
+action whose immediate refresh fails (see "Running the tests" below).
+
 ## Known limitations / TODO
 
-- Only tested structurally (schema validation), **not against real
-  hardware yet** — please verify carefully, especially:
+- Only tested structurally (schema validation) and against a stub Homey
+  runtime (device logic), **not against real hardware yet** — please
+  verify carefully, especially:
   - the door-open safety check actually blocking a start
   - that `target_humidity` values round-trip correctly (Homey stores it as
     a 0–1 fraction, the API uses whole percent)

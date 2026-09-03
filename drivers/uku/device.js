@@ -17,7 +17,15 @@ const DEFAULT_FINISHING_SOON_MINUTES = 10;
 class HuumDevice extends Homey.Device {
 
   async onInit() {
-    await this._createApiClient();
+    try {
+      await this._createApiClient();
+    } catch (err) {
+      // Missing/corrupt store credentials (shouldn't happen via normal
+      // pairing, but don't let it crash init if it ever does).
+      this.error('Could not create API client:', err.message);
+      await this.setUnavailable(this.homey.__('errors.missing_credentials')).catch(this.error);
+      return;
+    }
     this._appliedCapabilityLimits = null;
     this._wasBelowFinishingSoonThreshold = false;
 
@@ -97,8 +105,15 @@ class HuumDevice extends Homey.Device {
 
   /** Called by the driver after a successful repair (credentials changed). */
   async onCredentialsUpdated() {
-    await this._createApiClient();
-    await this._syncStatus().catch((err) => this.error('Status sync after repair failed:', err.message));
+    // The new credentials are already saved to the store at this point —
+    // don't let a hiccup here make the repair flow report failure.
+    try {
+      await this._createApiClient();
+      await this.setAvailable().catch(this.error);
+      await this._syncStatus();
+    } catch (err) {
+      this.error('Status sync after repair failed:', err.message);
+    }
   }
 
   /**
@@ -124,9 +139,12 @@ class HuumDevice extends Homey.Device {
         const humidity = this._getTargetHumidityPercent();
         await this._start(temperature, humidity);
       } else {
-        await this.api.turnOff();
+        await this._withAuthHandling(this.api.turnOff());
       }
-      await this._syncStatus();
+      // The command above already succeeded at this point — a failure to
+      // immediately re-fetch the fresh status must not make Homey report
+      // the action itself as failed, so it's logged, not thrown.
+      await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
     });
 
     this.registerCapabilityListener('target_temperature', async (value) => {
@@ -136,7 +154,7 @@ class HuumDevice extends Homey.Device {
       if (!this.getCapabilityValue('onoff')) return;
       const humidity = this._getTargetHumidityPercent();
       await this._start(value, humidity);
-      await this._syncStatus();
+      await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
     });
 
     // The whole point of this app: target_humidity is settable here, unlike
@@ -151,7 +169,7 @@ class HuumDevice extends Homey.Device {
         }
         const temperature = this.getCapabilityValue('target_temperature') || 80;
         await this._start(temperature, humidityPercent);
-        await this._syncStatus();
+        await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
       });
     }
 
@@ -161,10 +179,26 @@ class HuumDevice extends Homey.Device {
         // requested state actually differs from the last known state.
         const current = this.getCapabilityValue('onoff.light');
         if (current !== value) {
-          await this.api.toggleLight();
+          await this._withAuthHandling(this.api.toggleLight());
         }
-        await this._syncStatus();
+        await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
       });
+    }
+  }
+
+  /**
+   * Wraps a HuumApi call so that an auth failure consistently marks the
+   * device unavailable (with a clear, translated reason) no matter which
+   * API method it came from, instead of only doing this inside _start().
+   */
+  async _withAuthHandling(promise) {
+    try {
+      return await promise;
+    } catch (err) {
+      if (err instanceof HuumAuthError) {
+        await this.setUnavailable(this.homey.__('errors.auth_failed')).catch(this.error);
+      }
+      throw err;
     }
   }
 
@@ -176,14 +210,17 @@ class HuumDevice extends Homey.Device {
 
   async _start(temperature, humidityPercent) {
     try {
-      await this.api.turnOn({ temperature, humidity: humidityPercent });
+      await this._withAuthHandling(this.api.turnOn({ temperature, humidity: humidityPercent }));
     } catch (err) {
       if (err instanceof HuumSafetyError) {
         throw new Error(this.homey.__('errors.door_open'));
       }
-      if (err instanceof HuumAuthError) {
-        await this.setUnavailable(this.homey.__('errors.auth_failed')).catch(this.error);
+      if (err.code === 'humidity_exceeds_max') {
+        throw new Error(this.homey.__('errors.humidity_exceeds_max', err.data));
       }
+      // Anything else (network error, temperature out of range, ...) is
+      // re-thrown as-is — Homey shows err.message to the user either way,
+      // this is just the subset worth a translated, friendlier message.
       throw err;
     }
   }
@@ -191,7 +228,7 @@ class HuumDevice extends Homey.Device {
   /** Used by the "start_with_temperature_and_humidity" Flow action card. */
   async startWithTemperatureAndHumidity(temperature, humidityPercent) {
     await this._start(temperature, humidityPercent);
-    await this._syncStatus();
+    await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
   }
 
   async _syncStatus() {

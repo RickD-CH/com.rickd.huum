@@ -1,0 +1,187 @@
+'use strict';
+// Exercises drivers/uku/device.js against a stub Homey runtime (see
+// homey-stub/), to verify the exception-handling behaviour: a successful
+// command followed by a failed status refresh must NOT make the
+// capability action look like it failed to the user, translated error
+// messages, and a few other behaviours that only make sense with a
+// (fake) device instance around.
+//
+// Run with: node test/device.test.js (or `npm test`, which runs this and
+// huum-api.test.js together).
+
+const assert = require('assert');
+const path = require('path');
+const Module = require('module');
+
+// drivers/uku/device.js does `require('homey')`, which only resolves
+// inside a running Homey — there's no such package to install as a real
+// dependency (the actual Device/Driver/App classes are injected by the
+// Homey firmware at runtime, not shipped via npm). Point Node's module
+// resolution at our local stub instead, for this process only.
+process.env.NODE_PATH = path.join(__dirname, 'homey-stub');
+Module._initPaths();
+
+const APP_DIR = path.join(__dirname, '..');
+const enLocale = require(path.join(APP_DIR, 'locales', 'en.json'));
+
+const HuumDevice = require(path.join(APP_DIR, 'drivers', 'uku', 'device.js'));
+const { HuumAuthError, HuumSafetyError } = require(path.join(APP_DIR, 'lib', 'HuumApi.js'));
+
+function makeHomeyApi() {
+  const timers = [];
+  return {
+    __(key, vars) {
+      const value = key.split('.').reduce((o, k) => (o ? o[k] : undefined), enLocale);
+      if (typeof value !== 'string') return key;
+      return vars
+        ? value.replace(/\{\{(\w+)\}\}/g, (_, name) => String(vars[name]))
+        : value;
+    },
+    flow: {
+      getDeviceTriggerCard: () => ({ trigger: async () => {} }),
+    },
+    notifications: {
+      createNotification: async () => {},
+    },
+    setTimeout(fn, ms) {
+      const id = { fn, ms };
+      timers.push(id);
+      return id;
+    },
+    clearTimeout(id) {
+      const i = timers.indexOf(id);
+      if (i >= 0) timers.splice(i, 1);
+    },
+    __timers: timers,
+  };
+}
+
+function makeDevice({ capabilities }) {
+  const device = new HuumDevice();
+  device.homey = makeHomeyApi();
+  device.__store = { username: 'user@example.com', password: 'secret' };
+  for (const [id, value] of Object.entries(capabilities)) {
+    device.__capabilities.set(id, value);
+  }
+  return device;
+}
+
+async function testPostActionRefreshFailureDoesNotRejectListener() {
+  const device = makeDevice({
+    capabilities: {
+      onoff: false,
+      target_temperature: 80,
+      target_humidity: 0.3,
+      measure_temperature: 40,
+      measure_humidity: 20,
+      alarm_contact: false,
+      alarm_water: false,
+      alarm_generic: false,
+      huum_time_remaining: 0,
+    },
+  });
+
+  let turnOffCalled = false;
+  device.api = {
+    // The refresh that follows a successful turnOff() must not surface this.
+    getStatus: async () => { throw new Error('simulated network blip'); },
+    turnOff: async () => { turnOffCalled = true; return {}; },
+  };
+
+  device._registerCapabilityListeners();
+
+  // Should resolve (not throw), even though the post-action _syncStatus()
+  // call fails — that's the exact bug that was fixed.
+  await device.triggerCapabilityListener('onoff', false);
+
+  assert.strictEqual(turnOffCalled, true, 'turnOff() must actually have been called');
+  assert.ok(
+    device.__errors.some((e) => e.includes('Post-action status refresh failed')),
+    'the refresh failure must be logged, not thrown',
+  );
+  console.log('OK: successful turnOff() + failed refresh does not reject the onoff listener');
+}
+
+async function testDoorOpenErrorStillRejectsWithTranslatedMessage() {
+  const device = makeDevice({
+    capabilities: { onoff: false, target_temperature: 80, target_humidity: 0.3 },
+  });
+  device.api = {
+    turnOn: async () => { throw new HuumSafetyError(); },
+  };
+  device._registerCapabilityListeners();
+
+  await assert.rejects(
+    () => device.triggerCapabilityListener('onoff', true),
+    (err) => err.message === enLocale.errors.door_open,
+  );
+  console.log('OK: door-open safety error still rejects the listener with the translated message');
+}
+
+async function testHumidityExceedsMaxIsTranslated() {
+  const device = makeDevice({ capabilities: {} });
+  const err = new Error('raw');
+  err.code = 'humidity_exceeds_max';
+  err.data = { humidity: 50, maxHumidity: 10, temperature: 90 };
+  device.api = { turnOn: async () => { throw err; } };
+
+  const expected = enLocale.errors.humidity_exceeds_max
+    .replace('{{humidity}}', '50').replace('{{maxHumidity}}', '10').replace('{{temperature}}', '90');
+
+  await assert.rejects(() => device._start(90, 50), (e) => e.message === expected);
+  console.log('OK: humidity_exceeds_max is translated using the structured err.data');
+}
+
+async function testAuthErrorMarksUnavailable() {
+  const device = makeDevice({ capabilities: {} });
+  device.api = { turnOff: async () => { throw new HuumAuthError(); } };
+  device._registerCapabilityListeners();
+
+  await assert.rejects(() => device.triggerCapabilityListener('onoff', false));
+  assert.strictEqual(device.getAvailable(), false);
+  assert.strictEqual(device.__unavailableReason, enLocale.errors.auth_failed);
+  console.log('OK: an auth error on turnOff() also marks the device unavailable (not just on turnOn)');
+}
+
+async function testReconcileCapabilitiesAddsAndRemoves() {
+  // Paired without a steamer (config=2, light only): target_humidity etc.
+  // must not be present, then get added once config later reports a
+  // steamer (e.g. after upgrading from an older version of this app).
+  const device = makeDevice({ capabilities: { onoff: false } });
+  await device._reconcileCapabilities({ config: 2 });
+  assert.strictEqual(device.hasCapability('target_humidity'), false);
+  assert.strictEqual(device.hasCapability('onoff.light'), true);
+
+  await device._reconcileCapabilities({ config: 3 });
+  assert.strictEqual(device.hasCapability('target_humidity'), true);
+  assert.strictEqual(device.hasCapability('measure_humidity'), true);
+  assert.strictEqual(device.hasCapability('alarm_water'), true);
+  console.log('OK: _reconcileCapabilities adds steamer capabilities once config reports a steamer');
+}
+
+async function testAdaptivePollIntervalPicksActiveVsIdle() {
+  const device = makeDevice({ capabilities: {} });
+  device.__settings = { pollInterval: 30, idlePollInterval: 300 };
+
+  device._lastStatus = { isHeating: true };
+  device._scheduleNextPoll();
+  assert.strictEqual(device.homey.__timers[0].ms, 30 * 1000);
+
+  device._lastStatus = { isHeating: false };
+  device._scheduleNextPoll();
+  assert.strictEqual(device.homey.__timers[0].ms, 300 * 1000);
+  console.log('OK: adaptive polling picks the active interval while heating, idle interval otherwise');
+}
+
+(async () => {
+  await testPostActionRefreshFailureDoesNotRejectListener();
+  await testDoorOpenErrorStillRejectsWithTranslatedMessage();
+  await testHumidityExceedsMaxIsTranslated();
+  await testAuthErrorMarksUnavailable();
+  await testReconcileCapabilitiesAddsAndRemoves();
+  await testAdaptivePollIntervalPicksActiveVsIdle();
+  console.log('\nAll device.js exception-handling tests passed.');
+})().catch((err) => {
+  console.error('TEST FAILED:', err);
+  process.exit(1);
+});
