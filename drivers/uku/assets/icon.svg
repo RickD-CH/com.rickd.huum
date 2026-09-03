@@ -1,11 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 960">
-  <!-- Driver icon: the HUUM UKU wall panel — an upright rounded panel with
-       a digital readout and a large control knob. One colour, no
-       background, full 960 canvas. Different subject from the app icon
-       (which is the heater itself). -->
-  <rect x="252" y="130" width="456" height="700" rx="72" fill="none" stroke="#111" stroke-width="44"/>
+  <!-- Driver icon: the HUUM UKU wall panel seen at an angle (guideline 1.6
+       prefers a perspective view over a front-facing one for driver
+       icons). Single colour, transparent background, full 960 canvas.
+       Different subject from the app icon (the heater itself). -->
   <g fill="#111">
-    <rect x="342" y="252" width="276" height="86" rx="20"/>
-    <circle cx="480" cy="576" r="122"/>
+    <!-- depth / side faces, so it reads as 3D -->
+    <path d="M646 150 L702 182 L760 772 L706 764 Z"/>
+    <path d="M300 800 L356 832 L760 792 L706 764 Z"/>
   </g>
+  <!-- front face with the display slot and control knob punched out -->
+  <path fill="#111" fill-rule="evenodd" d="
+    M250 196 L646 150 L706 764 L300 800 Z
+    M348 296 L566 268 L576 352 L356 384 Z
+    M346 566 a128 146 0 1 0 256 0 a128 146 0 1 0 -256 0 Z
+  "/>
 </svg>
