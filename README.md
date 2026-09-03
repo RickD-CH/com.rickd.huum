@@ -60,6 +60,39 @@ safety check.
   ...) still refreshes immediately regardless of this schedule. Goes
   easier on the HUUM cloud than polling at a fixed rate 24/7.
 
+### Statistics & profiles
+
+The HUUM cloud has no session history at all — the status endpoint is only
+ever "right now" (see the "Confirmed NOT possible" note above). This app
+tracks it itself, by watching the heater's on/off transitions while it's
+running, and persists it in the device store so it survives restarts:
+
+- `huum_session_count` capability — number of completed sessions since
+  pairing, with a Homey Insights trend
+- Device settings (*Statistics*, read-only): **total heating time**, and a
+  **last session** summary (when, how long, at what temperature/humidity)
+- Flow trigger *"A sauna session ended"* with `duration` (minutes),
+  `temperature`, and `humidity` tokens — for logging, notifications, etc.
+
+A session that was already running when the app started is timed from
+"whenever the app first noticed", not the real start — HUUM's API doesn't
+tell you when a session actually began, only whether it's heating right
+now. A session that both started *and* ended while the app wasn't running
+(e.g. Homey was rebooting) isn't counted at all rather than guessed at.
+
+Profiles are 3 named presets (device settings, e.g. "Familie" 80°C/30%,
+"Kurz" 90°C/10%, "Lang" 70°C/40% by default — rename/retune them however
+you like) with two Flow actions:
+
+- *"Save the current settings as profile `[1/2/3]`"* — writes the
+  device's current target temperature/humidity into that slot
+- *"Start the sauna with profile `[1/2/3]`"* — starts it with whatever
+  that slot has saved
+
+Useful pattern: a wall switch or Flow button that saves "whatever I just
+dialled in" as a profile once you've found a setting you like, then a
+one-tap Flow to start the sauna the same way next time.
+
 ## Feature comparison
 
 Researched against the **official HUUM Homey app** and the **Home
@@ -188,8 +221,10 @@ npm test
   runtime (`test/homey-stub/`, standing in for the `Device`/`Driver`/`App`
   base classes the real Homey firmware injects at runtime, which don't
   exist in the `homey` CLI npm package). Covers the exception-handling
-  behaviour described below, capability reconciliation, and adaptive
-  polling.
+  behaviour described below, capability reconciliation, adaptive polling,
+  session-statistics tracking (a full on/off cycle counts as one session;
+  an end with no recorded start doesn't fabricate one), and saving/starting
+  profiles.
 - `test/driver.test.js` — `drivers/uku/driver.js` pairing and repair
   against the same stub, including the "multiple HUUM controllers"
   scenario above and steamer/light detection at pairing time.

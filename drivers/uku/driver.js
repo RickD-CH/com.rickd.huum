@@ -44,6 +44,7 @@ class HuumDriver extends Homey.Driver {
         'target_temperature',
         'measure_temperature',
         'huum_time_remaining',
+        'huum_session_count',
         'alarm_contact',
         'alarm_generic',
       ];

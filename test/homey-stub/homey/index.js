@@ -18,6 +18,10 @@ class Device {
 
   getStore() { return this.__store; }
 
+  getStoreValue(key) { return this.__store[key]; }
+
+  async setStoreValue(key, value) { this.__store[key] = value; }
+
   hasCapability(id) { return this.__capabilities.has(id); }
 
   getCapabilityValue(id) { return this.__capabilities.get(id); }

@@ -29,6 +29,7 @@ const { HuumAuthError, HuumSafetyError } = require(path.join(APP_DIR, 'lib', 'Hu
 
 function makeHomeyApi() {
   const timers = [];
+  const triggeredCards = [];
   return {
     __(key, vars) {
       const value = key.split('.').reduce((o, k) => (o ? o[k] : undefined), enLocale);
@@ -38,8 +39,11 @@ function makeHomeyApi() {
         : value;
     },
     flow: {
-      getDeviceTriggerCard: () => ({ trigger: async () => {} }),
+      getDeviceTriggerCard: (id) => ({
+        trigger: async (device, tokens) => { triggeredCards.push({ id, tokens }); },
+      }),
     },
+    __triggeredCards: triggeredCards,
     notifications: {
       createNotification: async () => {},
     },
@@ -173,6 +177,86 @@ async function testAdaptivePollIntervalPicksActiveVsIdle() {
   console.log('OK: adaptive polling picks the active interval while heating, idle interval otherwise');
 }
 
+async function testSessionTrackingCountsACompleteSession() {
+  const device = makeDevice({
+    capabilities: { huum_session_count: 0, onoff: false },
+  });
+
+  // Session starts: onoff false -> true.
+  device._lastStatus = { isHeating: false };
+  await device._trackSessionStats({
+    isHeating: true, targetTemperature: 82, targetHumidity: 35,
+  });
+  assert.strictEqual(device.getStoreValue('sessionStartedAt') > 0, true, 'session start time recorded');
+  assert.strictEqual(device.getCapabilityValue('huum_session_count'), 0, 'count unchanged while still heating');
+
+  // Pretend some time passed, then the session ends: true -> false.
+  device.__store.sessionStartedAt -= 45 * 60 * 1000; // backdate by 45 minutes
+  device._lastStatus = { isHeating: true };
+  await device._trackSessionStats({ isHeating: false });
+
+  assert.strictEqual(device.getCapabilityValue('huum_session_count'), 1);
+  assert.strictEqual(device.getStoreValue('sessionCount'), 1);
+  assert.strictEqual(device.getStoreValue('totalHeatingMinutes'), 45);
+  const lastSession = device.getStoreValue('lastSession');
+  assert.strictEqual(lastSession.durationMinutes, 45);
+  assert.strictEqual(lastSession.temperature, 82);
+  assert.strictEqual(lastSession.humidity, 35);
+  assert.strictEqual(device.getStoreValue('sessionStartedAt'), null, 'cleared after the session ends');
+
+  const trigger = device.homey.__triggeredCards.find((t) => t.id === 'sauna_session_ended');
+  assert.ok(trigger, 'sauna_session_ended Flow trigger fired');
+  assert.strictEqual(trigger.tokens.duration, 45);
+  assert.strictEqual(trigger.tokens.temperature, 82);
+  assert.strictEqual(trigger.tokens.humidity, 35);
+  console.log('OK: a full on->off cycle counts one session, records it, and fires sauna_session_ended');
+}
+
+async function testSessionTrackingIgnoresEndWithNoKnownStart() {
+  // E.g. the app restarted while already off, or store got cleared —
+  // ending a session we never saw start must not fabricate a count.
+  const device = makeDevice({ capabilities: { huum_session_count: 0 } });
+  device._lastStatus = { isHeating: true };
+  await device._trackSessionStats({ isHeating: false });
+
+  assert.strictEqual(device.getStoreValue('sessionCount'), undefined);
+  assert.strictEqual(device.homey.__triggeredCards.length, 0);
+  console.log('OK: an end-transition with no recorded start does not fabricate a session');
+}
+
+async function testSaveAndStartWithProfile() {
+  const device = makeDevice({
+    capabilities: { target_temperature: 88, target_humidity: 0.2, onoff: true },
+  });
+  device.__settings = { profile1Temperature: undefined, profile1Humidity: undefined };
+
+  await device.saveProfile('profile1');
+  assert.strictEqual(device.getSetting('profile1Temperature'), 88);
+  assert.strictEqual(device.getSetting('profile1Humidity'), 20);
+  console.log('OK: saveProfile() stores the device\'s current temperature/humidity into that profile\'s settings');
+
+  let capturedTurnOn = null;
+  device.api = { turnOn: async (args) => { capturedTurnOn = args; return {}; } };
+  await device.startWithProfile('profile1');
+  assert.deepStrictEqual(capturedTurnOn, { temperature: 88, humidity: 20 });
+  console.log('OK: startWithProfile() starts the sauna with the saved profile\'s temperature/humidity');
+}
+
+async function testStartWithUnconfiguredProfileThrows() {
+  const device = makeDevice({ capabilities: {} });
+  device.__settings = {}; // profile2Temperature never set
+
+  let apiCalled = false;
+  device.api = { turnOn: async () => { apiCalled = true; return {}; } };
+
+  await assert.rejects(
+    () => device.startWithProfile('profile2'),
+    (err) => err.message === enLocale.errors.profile_not_configured,
+  );
+  assert.strictEqual(apiCalled, false, 'must not call the API with an undefined temperature');
+  console.log('OK: starting an unconfigured profile is rejected with a translated message, no API call made');
+}
+
 (async () => {
   await testPostActionRefreshFailureDoesNotRejectListener();
   await testDoorOpenErrorStillRejectsWithTranslatedMessage();
@@ -180,6 +264,10 @@ async function testAdaptivePollIntervalPicksActiveVsIdle() {
   await testAuthErrorMarksUnavailable();
   await testReconcileCapabilitiesAddsAndRemoves();
   await testAdaptivePollIntervalPicksActiveVsIdle();
+  await testSessionTrackingCountsACompleteSession();
+  await testSessionTrackingIgnoresEndWithNoKnownStart();
+  await testSaveAndStartWithProfile();
+  await testStartWithUnconfiguredProfileThrows();
   console.log('\nAll device.js exception-handling tests passed.');
 })().catch((err) => {
   console.error('TEST FAILED:', err);

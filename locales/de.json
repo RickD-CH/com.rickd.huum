@@ -6,7 +6,8 @@
     "door_open": "Die Sauna kann nicht gestartet werden, solange die Tür offen ist",
     "auth_failed": "HUUM-Anmeldung fehlgeschlagen. Bitte dieses Gerät mit aktueller E-Mail-Adresse und Passwort reparieren.",
     "missing_credentials": "Keine HUUM-Anmeldedaten für dieses Gerät gefunden. Bitte mit E-Mail-Adresse und Passwort reparieren.",
-    "humidity_exceeds_max": "{{humidity}}% Luftfeuchtigkeit ist bei {{temperature}}°C zu hoch — der Verdampfer erlaubt bei dieser Temperatur höchstens {{maxHumidity}}%."
+    "humidity_exceeds_max": "{{humidity}}% Luftfeuchtigkeit ist bei {{temperature}}°C zu hoch — der Verdampfer erlaubt bei dieser Temperatur höchstens {{maxHumidity}}%.",
+    "profile_not_configured": "Für dieses Profil ist noch keine Temperatur eingestellt — öffne die Geräte-Einstellungen, um es zu konfigurieren, oder nutze zuerst \"Aktuelle Einstellungen als Profil speichern\"."
   },
   "notifications": {
     "water_alarm_title": "{{name}}: Verdampfer braucht Wasser.",
@@ -14,7 +15,8 @@
   },
   "labels": {
     "yes": "Ja",
-    "no": "Nein"
+    "no": "Nein",
+    "no_sessions_yet": "Noch keine Sitzungen"
   },
   "status": {
     "230": "Offline",

@@ -17,6 +17,16 @@ class HuumApp extends Homey.App {
         const remaining = args.device.getCapabilityValue('huum_time_remaining');
         return typeof remaining === 'number' && remaining < args.minutes;
       });
+
+    this.homey.flow.getActionCard('start_with_profile')
+      .registerRunListener(async (args) => {
+        await args.device.startWithProfile(args.profile);
+      });
+
+    this.homey.flow.getActionCard('save_profile')
+      .registerRunListener(async (args) => {
+        await args.device.saveProfile(args.profile);
+      });
   }
 
 }

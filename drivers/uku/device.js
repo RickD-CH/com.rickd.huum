@@ -297,6 +297,7 @@ class HuumDevice extends Homey.Device {
 
     await this._syncSafetyAlarms(status);
     await this._syncTimeRemaining(status);
+    await this._trackSessionStats(status);
     await this._applyDeviceLimits(status);
     await this._syncInfoSettings(status);
 
@@ -341,6 +342,110 @@ class HuumDevice extends Homey.Device {
   }
 
   /**
+   * HUUM's cloud keeps no session history at all (the status endpoint is
+   * purely "right now"), so this app tracks it itself by watching
+   * isHeating transitions across polls, persisted in the device store so
+   * it survives app restarts. Only counts sessions this app was actually
+   * running to observe — see the "Total heating time" setting hint.
+   */
+  async _trackSessionStats(status) {
+    await this._setCapabilitySafe('huum_session_count', this.getStoreValue('sessionCount') || 0);
+
+    const wasHeating = this._lastStatus ? this._lastStatus.isHeating : undefined;
+    const isHeating = status.isHeating;
+
+    if (wasHeating === undefined) {
+      // First reading since the app started. If we're already heating we
+      // don't know the real start time — approximate it as "now" so a
+      // duration can still be recorded if we see this session end.
+      if (isHeating && !this.getStoreValue('sessionStartedAt')) {
+        await this._beginSessionTracking(status);
+      }
+      return;
+    }
+
+    if (!wasHeating && isHeating) {
+      await this._beginSessionTracking(status);
+    } else if (wasHeating && !isHeating) {
+      await this._endSessionTracking();
+    }
+  }
+
+  async _beginSessionTracking(status) {
+    await this.setStoreValue('sessionStartedAt', Date.now());
+    await this.setStoreValue('sessionStartTemperature', status.targetTemperature ?? null);
+    await this.setStoreValue(
+      'sessionStartHumidityPercent',
+      typeof status.targetHumidity === 'number' ? status.targetHumidity : 0,
+    );
+  }
+
+  async _endSessionTracking() {
+    const startedAt = this.getStoreValue('sessionStartedAt');
+    if (!startedAt) return; // App restarted mid-session — no reliable start time to measure from.
+
+    const endedAt = Date.now();
+    const durationMinutes = Math.max(0, Math.round((endedAt - startedAt) / 60000));
+    const temperature = this.getStoreValue('sessionStartTemperature') ?? null;
+    const humidity = this.getStoreValue('sessionStartHumidityPercent') || 0;
+
+    const sessionCount = (this.getStoreValue('sessionCount') || 0) + 1;
+    const totalHeatingMinutes = (this.getStoreValue('totalHeatingMinutes') || 0) + durationMinutes;
+
+    await this.setStoreValue('sessionCount', sessionCount);
+    await this.setStoreValue('totalHeatingMinutes', totalHeatingMinutes);
+    await this.setStoreValue('lastSession', {
+      startedAt, endedAt, durationMinutes, temperature, humidity,
+    });
+    await this.setStoreValue('sessionStartedAt', null);
+
+    await this._setCapabilitySafe('huum_session_count', sessionCount);
+
+    this.homey.flow.getDeviceTriggerCard('sauna_session_ended')
+      .trigger(this, { duration: durationMinutes, temperature: temperature || 0, humidity })
+      .catch((err) => this.error('Failed to trigger sauna_session_ended:', err.message));
+  }
+
+  _formatDuration(totalMinutes) {
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  }
+
+  _buildSessionSummaryText() {
+    const lastSession = this.getStoreValue('lastSession');
+    if (!lastSession) return this.homey.__('labels.no_sessions_yet');
+
+    const dateStr = new Date(lastSession.startedAt).toLocaleString();
+    const durationStr = this._formatDuration(lastSession.durationMinutes);
+    const humidityStr = lastSession.humidity > 0 ? `, ${lastSession.humidity}%` : '';
+    const temperatureStr = typeof lastSession.temperature === 'number' ? `${lastSession.temperature}°C` : '?';
+    return `${dateStr} (${durationStr}), ${temperatureStr}${humidityStr}`;
+  }
+
+  /** Used by the "start_with_profile" Flow action card. */
+  async startWithProfile(profileId) {
+    const temperature = this.getSetting(`${profileId}Temperature`);
+    if (typeof temperature !== 'number') {
+      throw new Error(this.homey.__('errors.profile_not_configured'));
+    }
+    const humidity = this.getSetting(`${profileId}Humidity`);
+    await this._start(temperature, humidity);
+    await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
+  }
+
+  /** Used by the "save_profile" Flow action card. */
+  async saveProfile(profileId) {
+    const temperature = this.getCapabilityValue('target_temperature');
+    const settings = { [`${profileId}Temperature`]: temperature };
+    const humidityPercent = this._getTargetHumidityPercent();
+    if (typeof humidityPercent === 'number') {
+      settings[`${profileId}Humidity`] = humidityPercent;
+    }
+    await this.setSettings(settings);
+  }
+
+  /**
    * The heater itself reports its real min/max temperature and timer
    * limits (saunaConfig) — use those instead of the hardcoded 40-110°C
    * default whenever they're available and different.
@@ -377,6 +482,8 @@ class HuumDevice extends Homey.Device {
       deviceLimits: config
         ? `${config.minTemp}–${config.maxTemp} °C, timer ${config.minTimer}–${config.maxTimer} min`
         : '-',
+      totalHeatingTime: this._formatDuration(this.getStoreValue('totalHeatingMinutes') || 0),
+      lastSessionSummary: this._buildSessionSummaryText(),
     };
 
     const current = this.getSettings();

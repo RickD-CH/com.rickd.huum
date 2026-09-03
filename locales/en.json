@@ -6,7 +6,8 @@
     "door_open": "Cannot start the sauna while the door is open",
     "auth_failed": "HUUM login failed. Please repair this device with your current email and password.",
     "missing_credentials": "No HUUM login found for this device. Please repair it with your email and password.",
-    "humidity_exceeds_max": "{{humidity}}% humidity is too high at {{temperature}}°C — the steamer allows at most {{maxHumidity}}% at this temperature."
+    "humidity_exceeds_max": "{{humidity}}% humidity is too high at {{temperature}}°C — the steamer allows at most {{maxHumidity}}% at this temperature.",
+    "profile_not_configured": "This profile has no temperature set yet — open the device settings to configure it, or use \"Save the current settings as a profile\" first."
   },
   "notifications": {
     "water_alarm_title": "{{name}}: steamer needs water.",
@@ -14,7 +15,8 @@
   },
   "labels": {
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "no_sessions_yet": "No sessions yet"
   },
   "status": {
     "230": "Offline",
