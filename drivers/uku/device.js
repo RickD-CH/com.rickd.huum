@@ -30,11 +30,11 @@ class HuumDevice extends Homey.Device {
       await this.setUnavailable(this.homey.__('errors.missing_credentials')).catch(this.error);
       return;
     }
-    this._appliedCapabilityLimits = null;
     this._wasBelowFinishingSoonThreshold = false;
     this._powerMeterInstance = null;
 
     await this._migrateLegacySettings();
+    this._upgradeCapabilities();
 
     // Detect which hardware modules (steamer/light) this UKU actually has
     // *before* registering capability listeners, so e.g. target_humidity
@@ -106,6 +106,23 @@ class HuumDevice extends Homey.Device {
         await this.setStoreValue(key, value).catch(this.error);
       }
     }
+  }
+
+  /**
+   * Capabilities that later versions added to list_devices but that a
+   * device paired by an older version is still missing. Deferred out of the
+   * onInit tick — calling addCapability() synchronously from onInit can make
+   * the device re-initialise in a loop.
+   */
+  _upgradeCapabilities() {
+    const missing = ['thermostat_mode'].filter((id) => !this.hasCapability(id));
+    if (!missing.length) return;
+    this.homey.setTimeout(async () => {
+      for (const id of missing) {
+        // eslint-disable-next-line no-await-in-loop
+        await this.addCapability(id).catch((err) => this.error(`Failed to add ${id}:`, err.message));
+      }
+    }, 4000);
   }
 
   async onSettings({ changedKeys }) {
@@ -488,9 +505,6 @@ class HuumDevice extends Homey.Device {
     const doorSensor = this._sensorPresent('door', status);
 
     const wanted = new Map([
-      // Always-on capabilities that a device paired by an older version of
-      // this app may still be missing.
-      ['thermostat_mode', true],
       ['target_humidity', hasSteamer],
       ['measure_humidity', hasSteamer],
       ['alarm_water', hasSteamer && waterSensor],
@@ -721,14 +735,23 @@ class HuumDevice extends Homey.Device {
     if (typeof config.minTemp !== 'number' || typeof config.maxTemp !== 'number') return;
 
     const key = `${config.minTemp}-${config.maxTemp}`;
-    if (this._appliedCapabilityLimits === key) return;
+    // Persisted in the store: setCapabilityOptions() re-initialises the
+    // device, and an instance flag resets on every onInit — that would loop
+    // forever if the heater's limits differ from the app.json defaults.
+    if (this.getStoreValue('appliedTempLimits') === key) return;
+
+    const current = this.getCapabilityOptions ? this.getCapabilityOptions('target_temperature') : null;
+    if (current && current.min === config.minTemp && current.max === config.maxTemp) {
+      await this.setStoreValue('appliedTempLimits', key).catch(this.error);
+      return;
+    }
 
     try {
       await this.setCapabilityOptions('target_temperature', {
         min: config.minTemp,
         max: config.maxTemp,
       });
-      this._appliedCapabilityLimits = key;
+      await this.setStoreValue('appliedTempLimits', key).catch(this.error);
     } catch (err) {
       this.error('Could not apply device-reported temperature limits:', err.message);
     }
