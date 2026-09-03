@@ -109,7 +109,6 @@ guidelines](https://apps.developer.homey.app/app-store/guidelines/images).
 
 ## Repo / app id
 
-This repo and the Homey app id are both currently `com.rickd.huumlocal`. If
-the repo gets renamed, let me know if you also want the app `id` in
-`app.json`/`package.json` changed to match — it's free to change pre-release,
-but becomes a breaking change for existing installs once published.
+Repo and Homey app id are `com.rickd.huum`, matching. The id is free to
+change pre-release, but becomes a breaking change for existing installs once
+this app is published to the Homey App Store.

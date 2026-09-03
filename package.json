@@ -1,5 +1,5 @@
 {
-  "name": "com.rickd.huumlocal",
+  "name": "com.rickd.huum",
   "version": "0.1.0",
   "description": "Homey app to control a HUUM sauna heater (UKU WiFi) via the HUUM cloud API.",
   "main": "app.js",
