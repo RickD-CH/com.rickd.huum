@@ -3,59 +3,68 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light dark" />
   <title>HUUM UKU Sauna</title>
   <style>
-    :root {
-      color-scheme: light;
-      --bg: #f3f3f5; --fg: #1c1c1e; --muted: #6b6b72; --card: #fff;
-      --border: rgba(0,0,0,.12); --field: rgba(0,0,0,.02);
-      --accent: #E85D2B; --ok: #2e9e4f; --err: #d23b3b;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root:not([data-theme="light"]) {
-        color-scheme: dark;
-        --bg: #17181a; --fg: #f1f1f3; --muted: #9a9aa2; --card: #232428;
-        --border: rgba(255,255,255,.14); --field: rgba(255,255,255,.05);
-      }
+    /* Light is the default; the page JS always stamps data-theme="light" or
+       "dark" on <html> (from the Homey theme / a Canvas-colour probe / the
+       user's override), so nothing here depends on prefers-color-scheme,
+       which the Homey mobile webview does not report reliably. */
+    :root, :root[data-theme="light"] {
+      --bg: #f3f3f5; --fg: #1c1c1e; --muted: #6b6b72; --card: #ffffff;
+      --border: rgba(0,0,0,.12); --field: #ffffff; --field-border: rgba(0,0,0,.22);
+      --accent: #E85D2B; --ok: #2e9e4f; --err: #e5484d;
     }
     :root[data-theme="dark"] {
-      color-scheme: dark;
-      --bg: #17181a; --fg: #f1f1f3; --muted: #9a9aa2; --card: #232428;
-      --border: rgba(255,255,255,.14); --field: rgba(255,255,255,.05);
+      --bg: #16171a; --fg: #f2f2f4; --muted: #9c9ca4; --card: #242529;
+      --border: rgba(255,255,255,.13); --field: #2f3035; --field-border: rgba(255,255,255,.22);
+      --accent: #ff7a4d; --ok: #4cc46a; --err: #ff6b6e;
     }
-    :root[data-theme="light"] {
-      color-scheme: light;
-      --bg: #f3f3f5; --fg: #1c1c1e; --muted: #6b6b72; --card: #fff;
-      --border: rgba(0,0,0,.12); --field: rgba(0,0,0,.02);
-    }
-    body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 14px; line-height: 1.45; background: var(--bg); color: var(--fg); }
-    h1 { font-size: 19px; margin: 0; }
+    html, body { background: var(--bg) !important; color: var(--fg) !important; }
+    body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 14px; line-height: 1.45; }
+    h1 { font-size: 19px; margin: 0; color: var(--fg); }
     h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 22px 0 8px; }
     .toprow { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
     .toprow select { width: auto; }
-    .tabs { display: flex; gap: 4px; overflow-x: auto; margin: 14px 0 4px; -webkit-overflow-scrolling: touch; }
-    .tab { flex: 0 0 auto; background: transparent; border: 0; border-bottom: 2px solid transparent; color: var(--muted); font-size: 14px; font-weight: 600; padding: 8px 12px; cursor: pointer; white-space: nowrap; }
-    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tabs { display: flex; gap: 2px; overflow-x: auto; margin: 14px 0 4px; -webkit-overflow-scrolling: touch; border-bottom: 1px solid var(--border); }
+    .tabs .tab {
+      flex: 0 0 auto; background: transparent !important; border: 0 !important;
+      border-bottom: 2px solid transparent !important; border-radius: 0 !important;
+      color: var(--muted) !important; font-size: 14px; font-weight: 600;
+      padding: 8px 12px; margin: 0; cursor: pointer; white-space: nowrap;
+      box-shadow: none !important;
+    }
+    .tabs .tab.active { color: var(--accent) !important; border-bottom-color: var(--accent) !important; }
     .panel { display: none; }
     .panel.active { display: block; }
-    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; color: var(--fg); }
     .row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; }
     .row .k { color: var(--muted); }
-    .row .v { font-weight: 600; text-align: right; }
+    .row .v { font-weight: 600; text-align: right; color: var(--fg); }
     label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 3px; }
-    input[type=text], input[type=number], select { width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--field); color: inherit; }
+    input[type=text], input[type=number], select {
+      width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 14px;
+      border: 1px solid var(--field-border) !important; border-radius: 8px;
+      background: var(--field) !important; color: var(--fg) !important;
+      -webkit-appearance: none; appearance: none;
+    }
+    #theme { width: auto; }
     .profile { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 8px; }
     .profile:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
     .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
     .btnrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
-    button.action { padding: 9px 18px; font-size: 14px; font-weight: 600; cursor: pointer; border: 0; border-radius: 8px; background: var(--accent); color: #fff; }
-    button.ghost { padding: 9px 16px; font-size: 14px; font-weight: 600; cursor: pointer; border: 1px solid var(--border); border-radius: 8px; background: transparent; color: var(--fg); }
+    .btnrow button {
+      padding: 9px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+      border-radius: 8px; margin: 0; box-shadow: none !important;
+    }
+    .btnrow button.action { border: 0 !important; background: var(--accent) !important; color: #fff !important; }
+    .btnrow button.ghost { border: 1px solid var(--field-border) !important; background: transparent !important; color: var(--fg) !important; }
     button:disabled { opacity: .5; cursor: default; }
     .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
-    p { font-size: 14px; }
+    p { font-size: 14px; color: var(--fg); }
     .radio { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 14px; }
     .radio input { width: auto; }
-    .radio label { margin: 0; color: inherit; }
+    .radio label { margin: 0; color: var(--fg); }
     .saved { color: var(--ok); font-size: 13px; }
     .err { color: var(--err); font-size: 13px; margin-top: 8px; }
     [hidden] { display: none !important; }
@@ -187,7 +196,7 @@
       meterHint: 'Wähle ein Gerät, das Leistung meldet (z. B. deinen Shelly). Seine Live-Watt werden auf die Sauna gespiegelt.',
       meterNone: 'Kein Messgerät gefunden.',
       meterNoPerm: 'Geräteliste nicht verfügbar (fehlende Berechtigung). Nutze die kW-Schätzung.',
-      save: 'Speichern', saved: 'Gespeichert', resetProfiles: 'Auf Standard zurücksetzen',
+      save: 'Speichern', saved: 'Gespeichert', resetProfiles: 'Auf Standard zurücksetzen', noSteamer: 'kein Verdampfer',
       about: 'Unabhängige, inoffizielle App für HUUM-UKU-Saunas — nicht mit HUUM verbunden.',
       donate: '☕ Unterstützen (PayPal)', github: 'Fehler melden',
       empty: 'Noch keine Sauna gekoppelt. Füge zuerst eine unter "Geräte" hinzu.',
@@ -214,7 +223,7 @@
       meterHint: 'Pick a device that reports power (e.g. your Shelly). Its live wattage is mirrored onto the sauna.',
       meterNone: 'No power-measuring device found.',
       meterNoPerm: 'Device list unavailable (missing permission). Use the kW estimate.',
-      save: 'Save', saved: 'Saved', resetProfiles: 'Reset to defaults',
+      save: 'Save', saved: 'Saved', resetProfiles: 'Reset to defaults', noSteamer: 'no steamer',
       about: 'Independent, unofficial app for HUUM UKU saunas — not affiliated with HUUM.',
       donate: '☕ Donate (PayPal)', github: 'Report an issue',
       empty: 'No sauna paired yet. Add one from Devices first.',
@@ -276,11 +285,33 @@
       });
     }
 
-    function applyTheme(v) {
-      v = (v === 'light' || v === 'dark') ? v : 'auto';
-      if (v === 'auto') document.documentElement.removeAttribute('data-theme');
-      else document.documentElement.setAttribute('data-theme', v);
-      $('theme').value = v;
+    // The Homey mobile webview does not report prefers-color-scheme, but it
+    // *does* paint standard elements with the app's theme. Probe the CSS
+    // system colour to find out which theme we're actually in.
+    function systemPrefersDark() {
+      try {
+        if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return true;
+      } catch (e) {}
+      try {
+        var probe = document.createElement('div');
+        probe.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:1px;height:1px;background-color:Canvas';
+        document.body.appendChild(probe);
+        var m = getComputedStyle(probe).backgroundColor.match(/\d+/g);
+        document.body.removeChild(probe);
+        if (m && m.length >= 3) {
+          var lum = 0.299 * +m[0] + 0.587 * +m[1] + 0.114 * +m[2];
+          return lum < 128;
+        }
+      } catch (e) {}
+      return true; // Homey mobile defaults to dark
+    }
+
+    function applyTheme(pref) {
+      pref = (pref === 'light' || pref === 'dark' || pref === 'auto') ? pref : 'auto';
+      var effective = pref === 'auto' ? (systemPrefersDark() ? 'dark' : 'light') : pref;
+      document.documentElement.setAttribute('data-theme', effective);
+      var sel = $('theme');
+      if (sel) sel.value = pref;
     }
 
     function applyText() {
@@ -341,13 +372,14 @@
 
     function renderProfiles(cfg) {
       var hasSteamer = cfg.hasSteamer;
+      var humLabel = hasSteamer ? T.hum : (T.hum + ' — ' + T.noSteamer);
       $('profiles').innerHTML = cfg.profiles.map(function (p, idx) {
         return '<div class="profile">'
           + '<label>' + T.name + '</label>'
           + '<input type="text" data-p="' + idx + '" data-f="name" value="' + esc(p.name || '') + '" maxlength="40" />'
           + '<div class="grid2">'
           + '<div><label>' + T.temp + '</label><input type="number" data-p="' + idx + '" data-f="temperature" min="40" max="110" step="1" value="' + (p.temperature == null ? '' : p.temperature) + '" /></div>'
-          + '<div' + (hasSteamer ? '' : ' style="opacity:.4"') + '><label>' + T.hum + '</label><input type="number" data-p="' + idx + '" data-f="humidity" min="0" max="90" step="5" value="' + (p.humidity == null ? '' : p.humidity) + '" ' + (hasSteamer ? '' : 'disabled') + ' /></div>'
+          + '<div' + (hasSteamer ? '' : ' style="opacity:.45"') + '><label>' + humLabel + '</label><input type="number" data-p="' + idx + '" data-f="humidity" min="0" max="90" step="5" value="' + (p.humidity == null ? '' : p.humidity) + '" ' + (hasSteamer ? '' : 'disabled') + ' /></div>'
           + '</div></div>';
       }).join('');
     }

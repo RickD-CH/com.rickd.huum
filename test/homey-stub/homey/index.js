@@ -20,7 +20,8 @@ class Device {
 
   getData() { return this.__data || { id: 'test-sauna' }; }
 
-  getStoreValue(key) { return this.__store[key]; }
+  // Real Homey returns null (not undefined) for unset keys.
+  getStoreValue(key) { return Object.prototype.hasOwnProperty.call(this.__store, key) ? this.__store[key] : null; }
 
   async setStoreValue(key, value) { this.__store[key] = value; }
 

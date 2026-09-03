@@ -223,7 +223,7 @@ async function testSessionTrackingIgnoresEndWithNoKnownStart() {
   device._lastStatus = { isHeating: true };
   await device._trackSessionStats({ isHeating: false });
 
-  assert.strictEqual(device.getStoreValue('sessionCount'), undefined);
+  assert.ok(!device.getStoreValue('sessionCount'), 'no session was counted');
   assert.strictEqual(device.homey.__triggeredCards.length, 0);
   console.log('OK: an end-transition with no recorded start does not fabricate a session');
 }
@@ -307,6 +307,23 @@ async function testRemoteSafetyBlocksStartAndWarns() {
   console.log('OK: remote-safety lock blocks a start and surfaces a device warning');
 }
 
+async function testProfileDefaultsSeededOverNull() {
+  // Regression: real Homey getStoreValue() returns null for unset keys, and
+  // _migrateLegacySettings used a `=== undefined` check, so the 3 default
+  // profiles were never seeded and getConfig() only ever showed fallbacks.
+  const device = makeDevice({ capabilities: {} });
+  device.__store.cfgMigrated = true; // simulate an already-"migrated" device
+  await device._migrateLegacySettings();
+
+  const cfg = device.getConfig();
+  assert.strictEqual(cfg.profiles[0].name, 'Finnisch');
+  assert.strictEqual(cfg.profiles[0].temperature, 90);
+  assert.strictEqual(cfg.profiles[1].name, 'Feucht');
+  assert.strictEqual(cfg.profiles[1].humidity, 55);
+  assert.strictEqual(cfg.profiles[2].name, 'Family');
+  console.log('OK: the 3 default profiles are seeded even when getStoreValue() returns null');
+}
+
 async function testSessionEnergyAndCost() {
   const device = makeDevice({ capabilities: { huum_session_count: 0, onoff: false } });
   device.__store.electricityPrice = 0.30;
@@ -371,6 +388,7 @@ async function testWaterCheckReminderFiresOnStart() {
   await testWaterSensorAbsentHidesAlarm();
   await testDoorSensorAbsentOverridesSafetyCheck();
   await testRemoteSafetyBlocksStartAndWarns();
+  await testProfileDefaultsSeededOverNull();
   await testSessionEnergyAndCost();
   await testWaterAlarmIgnoresZeroSteamerError();
   await testWaterCheckReminderFiresOnStart();

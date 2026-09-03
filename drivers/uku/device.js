@@ -10,12 +10,13 @@ const DEFAULT_IDLE_POLL_INTERVAL_S = 300;
 const DEFAULT_FINISHING_SOON_MINUTES = 10;
 const DEFAULT_HEATER_POWER_KW = 6;
 
-// Seeded on first run (previously the defaults of the removed device-settings
-// "Profiles" group).
+// Seeded on first run / on "reset to defaults". Humidity is ignored on
+// saunas without a steamer. The "Feucht" preset sits at the steamer's max
+// humidity for its temperature (see HUMIDITY_THRESHOLDS in lib/HuumApi.js).
 const DEFAULT_PROFILES = {
-  profile1Name: 'Familie', profile1Temperature: 80, profile1Humidity: 30,
-  profile2Name: 'Kurz', profile2Temperature: 90, profile2Humidity: 10,
-  profile3Name: 'Lang', profile3Temperature: 70, profile3Humidity: 40,
+  profile1Name: 'Finnisch', profile1Temperature: 90, profile1Humidity: 0,
+  profile2Name: 'Feucht', profile2Temperature: 50, profile2Humidity: 55,
+  profile3Name: 'Family', profile3Temperature: 75, profile3Humidity: 25,
 };
 
 class HuumDevice extends Homey.Device {
@@ -80,6 +81,13 @@ class HuumDevice extends Homey.Device {
    * version of this app wrote as settings into the store, once.
    */
   async _migrateLegacySettings() {
+    // getStoreValue() returns null (not undefined) for unset keys on real
+    // Homey, so check both.
+    const unset = (key) => {
+      const v = this.getStoreValue(key);
+      return v === undefined || v === null;
+    };
+
     // One-time: copy anything an older version wrote as a real device setting
     // into the store (getSettings() may only expose still-declared settings,
     // so this is best-effort).
@@ -91,18 +99,25 @@ class HuumDevice extends Homey.Device {
       ];
       for (const key of keys) {
         const value = legacy[key];
-        if (value !== undefined && value !== null && this.getStoreValue(key) === undefined) {
+        if (value !== undefined && value !== null && unset(key)) {
           // eslint-disable-next-line no-await-in-loop
           await this.setStoreValue(key, value).catch(this.error);
         }
       }
       await this.setStoreValue('cfgMigrated', true).catch(this.error);
     }
-    // Every init: make sure the 3 profiles hold *something* sensible.
-    for (const [key, value] of Object.entries(DEFAULT_PROFILES)) {
-      if (this.getStoreValue(key) === undefined) {
+
+    // Every init: make sure each profile holds *something* sensible. Seed a
+    // whole profile's defaults only when its temperature is unset (so a user
+    // who cleared one field doesn't get it silently repopulated).
+    for (const n of [1, 2, 3]) {
+      if (unset(`profile${n}Temperature`)) {
         // eslint-disable-next-line no-await-in-loop
-        await this.setStoreValue(key, value).catch(this.error);
+        await this.setStoreValue(`profile${n}Name`, DEFAULT_PROFILES[`profile${n}Name`]).catch(this.error);
+        // eslint-disable-next-line no-await-in-loop
+        await this.setStoreValue(`profile${n}Temperature`, DEFAULT_PROFILES[`profile${n}Temperature`]).catch(this.error);
+        // eslint-disable-next-line no-await-in-loop
+        await this.setStoreValue(`profile${n}Humidity`, DEFAULT_PROFILES[`profile${n}Humidity`]).catch(this.error);
       }
     }
   }
@@ -752,7 +767,10 @@ class HuumDevice extends Homey.Device {
       throw new Error(this.homey.__('errors.profile_not_configured'));
     }
     const wasOff = !this.getCapabilityValue('onoff');
-    const humidity = this._cfg(`${profileId}Humidity`, undefined);
+    // Only pass humidity to a sauna that actually has a steamer.
+    const humidity = this.hasCapability('target_humidity')
+      ? this._cfg(`${profileId}Humidity`, undefined)
+      : undefined;
     await this._start(temperature, humidity);
     if (wasOff) await this._maybeWaterCheckReminder();
     await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
