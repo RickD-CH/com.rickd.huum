@@ -90,6 +90,26 @@ async function testPairingDetectsSteamerAndLight() {
   console.log('OK: pairing detects steamer+light (config=3) and includes the right capabilities');
 }
 
+async function testNumericSaunaNameGetsSaunaPrefix() {
+  const driver = makeDriver();
+  const session = makeSession();
+  await driver.onPair(session);
+
+  await withStubbedStatus({
+    'numeric@example.com': { saunaName: '24531', config: 3, doorClosed: true },
+    'named@example.com': { saunaName: 'Garden Sauna', config: 3, doorClosed: true },
+  }, async () => {
+    await session.handlers.login({ username: 'numeric@example.com', password: 'right' });
+    const [numericDevice] = await session.handlers.list_devices();
+    assert.strictEqual(numericDevice.name, 'Sauna 24531', 'a bare-number sauna name is prefixed with "Sauna "');
+
+    await session.handlers.login({ username: 'named@example.com', password: 'right' });
+    const [namedDevice] = await session.handlers.list_devices();
+    assert.strictEqual(namedDevice.name, 'Garden Sauna', 'a real sauna name is kept unchanged');
+  });
+  console.log('OK: numeric sauna name gets a "Sauna " prefix, real names are left alone');
+}
+
 async function testPairingWithoutSteamerOmitsHumidityCapabilities() {
   const driver = makeDriver();
   const session = makeSession();
@@ -182,6 +202,7 @@ async function testRepairUpdatesStoreAndNotifiesDevice() {
 
 (async () => {
   await testLoginRejectsWrongPassword();
+  await testNumericSaunaNameGetsSaunaPrefix();
   await testPairingDetectsSteamerAndLight();
   await testPairingWithoutSteamerOmitsHumidityCapabilities();
   await testMultipleSaunasPairAsIndependentDevices();

@@ -37,7 +37,7 @@ safety check.
 - Flow action: *"Start the sauna at `[temperature]` °C and `[humidity]` %
   humidity"*
 - Flow trigger: *"The sauna will be done heating soon"* (configurable
-  minutes-before-shutoff threshold, device setting)
+  minutes-before-shutoff threshold, app settings page)
 - Flow condition: *"Remaining time is/is not below `[minutes]` minutes"*
 - Flow triggers/conditions for `alarm_water` and `alarm_generic` come for
   free from Homey (any standard alarm capability gets them automatically)
@@ -46,9 +46,9 @@ safety check.
 - Optional **push notification** when the steamer reports it needs water
   (device setting, on by default) — in addition to the `alarm_water`
   capability/Flow triggers
-- Approximate **Energy tab** usage while heating, based on a heater power
-  (kW) you enter in the device settings (the API doesn't report real
-  wattage, so this is an estimate, not a measurement)
+- **Energy tab** usage: either an estimate from a heater power (kW) you
+  enter, or a real measurement mirrored from a power meter you link on the
+  app settings page (the HUUM API itself never reports wattage)
 - Device settings show read-only info reported by the heater itself: the
   **full raw status** (including "in use by another user", which was
   otherwise invisible), **whether a steamer and a light/fan are actually
@@ -69,7 +69,7 @@ running, and persists it in the device store so it survives restarts:
 
 - `huum_session_count` capability — number of completed sessions since
   pairing, with a Homey Insights trend
-- Device settings (*Statistics*, read-only): **total heating time**, and a
+- App settings page (*Statistics*, read-only): **total heating time**, and a
   **last session** summary (when, how long, at what temperature/humidity)
 - Flow trigger *"A sauna session ended"* with `duration` (minutes),
   `temperature`, and `humidity` tokens — for logging, notifications, etc.
@@ -80,7 +80,7 @@ tell you when a session actually began, only whether it's heating right
 now. A session that both started *and* ended while the app wasn't running
 (e.g. Homey was rebooting) isn't counted at all rather than guessed at.
 
-Profiles are 3 named presets (device settings, e.g. "Familie" 80°C/30%,
+Profiles are 3 named presets (app settings page, e.g. "Familie" 80°C/30%,
 "Kurz" 90°C/10%, "Lang" 70°C/40% by default — rename/retune them however
 you like) with two Flow actions:
 
@@ -178,16 +178,40 @@ light), and its own settings. Nothing in this app is a shared singleton —
 two accounts back-to-back and asserts they come out as two distinct
 devices with independently-detected hardware.
 
-There's no app-level (global) settings page, and there doesn't need to be
-one: every setting here — poll intervals, the water-alarm notification
-toggle, heater power for the Energy estimate — is genuinely per-sauna
-(different saunas can have different heaters, different Wi-Fi quality,
-different owners' notification preferences), so they belong on each
-device's own settings page, which is exactly where they already are. A
-global settings page would only earn its place if some preference should
-apply identically to *every* paired sauna at once (e.g. "mute all water
-alerts") — if you want that, say so and it's a small addition; nothing
-about the current per-device design would need to change to add it.
+### Where the settings live
+
+There is an **app settings page** (`settings/index.html`, reachable from
+*More → Apps → HUUM Sauna → Configure*) that holds, per sauna:
+
+- a live read-out of everything the API reports (status, steamer/light,
+  child lock, remote safety, subscription end, limits, door, temp/humidity,
+  time remaining),
+- the **3 profiles** (name / temperature / humidity),
+- **Advanced**: the two poll intervals and the "finishing soon" threshold,
+- **Heater power** for the Energy estimate — either a manual kW value, or
+  *link a real power meter* (any device exposing `measure_power`, e.g. a
+  Shelly): its live wattage is mirrored onto the sauna's own `measure_power`
+  and that is what the Energy tab uses. Linking a meter needs the
+  `homey:manager:api` permission, which is why the app is `platforms:
+  ["local"]` and shouldn't be submitted to the App Store as-is.
+
+These settings are stored in the **device store**, not as Homey device
+settings (Homey requires settings to be declared in `app.json`; the store
+is free-form). `_migrateLegacySettings()` in `drivers/uku/device.js` copies
+values written by an older version (when they *were* device settings) into
+the store once.
+
+The **device settings page** (the gear on the device) keeps only:
+
+- **Sauna info** (read-only) — deliberately duplicated here and on the app page,
+- **Notifications** — the water-alarm push toggle,
+- **Sensors / hardware** — whether this sauna actually has a water-level
+  sensor and a door sensor (`auto` / `present` / `absent`), plus a
+  "remind me to check the water before heating" push. `absent` hides the
+  corresponding alarm capability and, for the door, overrides the
+  "don't start with the door open" safety check — a heater with no door
+  contact reports the door as permanently open and could otherwise never
+  be started.
 
 ## Running / testing this app
 
@@ -261,6 +285,13 @@ This is covered by `test/device.test.js`, which runs `drivers/uku/device.js`
 against a stub Homey runtime and specifically simulates a successful
 action whose immediate refresh fails (see "Running the tests" below).
 
+## Trademark / affiliation
+
+Independent, unofficial app by a HUUM owner — **not affiliated with, endorsed by
+or supported by HUUM OÜ**. "HUUM" and "UKU" are used only to describe
+compatibility. The disclaimer is in `README.txt` / `README.de.txt` (the App
+Store description), modelled on the community Geberit AquaClean app.
+
 ## Author & support info
 
 Matches the same developer's other Homey app ([Device
@@ -303,10 +334,24 @@ CLI). Found and fixed real violations, not just theoretical ones:
 `test/manifest.test.js` now guards the mechanical parts of this list so
 they can't silently regress. What it *can't* check (and what nobody could,
 mechanically): whether the icon reads as recognisable, whether the images
-look genuinely professional — that's still a human/design judgment call,
-and honestly, hand-drawn placeholder SVGs and a tiny procedural PNG
-generator are not a substitute for real product photography/artwork if
-this is ever actually submitted to the App Store (see limitations below).
+look genuinely professional — that's still a human/design judgment call.
+
+Icons and images were redone after the owner tested the app:
+
+- **Icons** (`assets/icon.svg`, `drivers/uku/assets/icon.svg`) — line art per
+  guideline 1.5/1.6: a rock-topped sauna heater with steam (app), the UKU wall
+  panel with its dial (driver).
+- **App image** — a real photo (AI-generated, licensed to the owner): a matte
+  black stone-topped heater in a cedar sauna, warm glow, steam, negative space
+  left. Guideline 1.4.2 wants "lively, visually appealing… lifestyle images".
+- **Driver image** — a studio product shot of the HUUM UKU controller (glossy
+  black panel, teal display "80° / 1:30 40%", knurled knob with a teal ring) on
+  a **white background**, as guideline 1.4.3 requires.
+
+Homey image files are produced from the source images with `sharp` (headless
+Chrome/Edge screenshotting is blocked by an OS policy on this machine, and
+`@resvg/resvg-js` only rasterises SVG): centre/aspect-crop → resize → `flatten`
+onto a solid background so there is no accidental alpha.
 
 ## Known limitations / TODO
 
@@ -329,12 +374,12 @@ this is ever actually submitted to the App Store (see limitations below).
   scaffold couldn't be verified against a real Homey firmware version —
   if your firmware doesn't support one of them, the app still works, it
   just falls back to the static defaults in `app.json`.
-- Icons are now proper guideline-compliant line art, but the app/driver
-  **images** are still a simple procedurally-generated placeholder scene
-  (see the guideline audit above) — replace with real photography/artwork
-  before ever submitting to the App Store; a human should also sanity-check
-  the icons actually read as recognisable at a glance, which no test can
-  verify.
+- Icons and images were redrawn (`scratchpad` SVGs rasterised with
+  `@resvg/resvg-js` — headless Chrome/Edge screenshotting is blocked on this
+  machine by an OS policy) as vector illustrations: a rock-topped heater
+  with steam (app) and the UKU panel in brand orange (driver). Still
+  illustrative, not photographic — fine for a private install, worth
+  replacing with real artwork before any App Store submission.
 - Not published to the Homey App Store; run it via `homey app run` (or
   `homey app install`) on your own Homey.
 

@@ -7,11 +7,17 @@
     "auth_failed": "HUUM login failed. Please repair this device with your current email and password.",
     "missing_credentials": "No HUUM login found for this device. Please repair it with your email and password.",
     "humidity_exceeds_max": "{{humidity}}% humidity is too high at {{temperature}}°C — the steamer allows at most {{maxHumidity}}% at this temperature.",
-    "profile_not_configured": "This profile has no temperature set yet — open the device settings to configure it, or use \"Save the current settings as a profile\" first."
+    "profile_not_configured": "This profile has no temperature set yet — open the app settings page to configure it, or use \"Save the current settings as a profile\" first.",
+    "remote_disabled": "Remote control is disabled. Confirm safety on the UKU panel first, then try again."
+  },
+  "warnings": {
+    "remote_disabled": "Remote control disabled — confirm safety on the UKU panel to start the sauna from Homey.",
+    "door_open": "The door is open — close it to switch on the heating."
   },
   "notifications": {
     "water_alarm_title": "{{name}}: steamer needs water.",
-    "water_alarm_body": "No water in steamer, steamer system not allowed to start"
+    "water_alarm_body": "No water in steamer, steamer system not allowed to start",
+    "water_check_reminder": "{{name}}: check the steamer water before the sauna heats up."
   },
   "labels": {
     "yes": "Yes",

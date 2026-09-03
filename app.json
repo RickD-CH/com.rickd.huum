@@ -4,7 +4,7 @@
   "version": "0.6.0",
   "compatibility": ">=12.2.0",
   "sdk": 3,
-  "platforms": ["local", "cloud"],
+  "platforms": ["local"],
   "name": {
     "en": "HUUM Sauna (Full Control)",
     "de": "HUUM Sauna (Volle Kontrolle)"
@@ -14,7 +14,13 @@
     "de": "Volle Saunasteuerung — Luftfeuchtigkeit, Wasseralarm, Timer und mehr — die die offizielle App auslässt."
   },
   "category": ["climate"],
-  "permissions": [],
+  "permissions": ["homey:manager:api"],
+  "api": {
+    "getOverview": { "method": "get", "path": "/overview" },
+    "getDeviceConfig": { "method": "get", "path": "/device/:id/config" },
+    "setDeviceConfig": { "method": "put", "path": "/device/:id/config" },
+    "getPowerMeters": { "method": "get", "path": "/power-meters" }
+  },
   "images": {
     "small": "/assets/images/small.png",
     "large": "/assets/images/large.png",
@@ -38,6 +44,7 @@
   "capabilities": {
     "huum_time_remaining": {
       "type": "number",
+      "icon": "/assets/huum_time_remaining.svg",
       "title": {
         "en": "Time Remaining",
         "de": "Verbleibende Zeit"
@@ -59,6 +66,7 @@
     },
     "huum_session_count": {
       "type": "number",
+      "icon": "/assets/huum_session_count.svg",
       "title": {
         "en": "Sessions",
         "de": "Sitzungen"
@@ -296,10 +304,12 @@
       "class": "thermostat",
       "capabilities": [
         "onoff",
+        "thermostat_mode",
         "target_temperature",
         "measure_temperature",
         "target_humidity",
         "measure_humidity",
+        "measure_power",
         "huum_time_remaining",
         "huum_session_count",
         "alarm_contact",
@@ -307,11 +317,30 @@
         "alarm_generic"
       ],
       "capabilitiesOptions": {
+        "onoff": {
+          "uiComponent": null
+        },
+        "thermostat_mode": {
+          "title": {
+            "en": "Sauna",
+            "de": "Sauna"
+          },
+          "values": [
+            { "id": "off", "title": { "en": "Off", "de": "Aus" } },
+            { "id": "heat", "title": { "en": "Heating", "de": "Heizen" } }
+          ]
+        },
         "target_temperature": {
           "min": 40,
           "max": 110,
           "step": 1,
           "decimals": 0
+        },
+        "measure_power": {
+          "title": {
+            "en": "Power (from linked meter)",
+            "de": "Leistung (vom verknüpften Messgerät)"
+          }
         },
         "target_humidity": {
           "min": 0,
@@ -349,7 +378,7 @@
           "usageOff": 0
         }
       },
-      "platforms": ["local", "cloud"],
+      "platforms": ["local"],
       "connectivity": ["cloud"],
       "images": {
         "small": "/drivers/uku/assets/images/small.png",
@@ -374,9 +403,6 @@
               "en": "HUUM password",
               "de": "HUUM Passwort"
             }
-          },
-          "navigation": {
-            "next": "list_devices"
           }
         },
         {
@@ -423,107 +449,68 @@
                 "de": "Push-Benachrichtigung, wenn dem Verdampfer Wasser fehlt"
               },
               "hint": {
-                "en": "Sends a Homey notification the moment the steamer reports it needs to be refilled, in addition to the water alarm you can use in Flows.",
-                "de": "Sendet eine Homey-Benachrichtigung, sobald der Verdampfer meldet, dass Wasser nachgefüllt werden muss — zusätzlich zum Wasseralarm, den du auch in Flows nutzen kannst."
+                "en": "Sends a Homey notification the moment the steamer reports it needs to be refilled, in addition to the water alarm you can use in Flows. Only works if your steamer has a water-level sensor (see Sensors / hardware).",
+                "de": "Sendet eine Homey-Benachrichtigung, sobald der Verdampfer meldet, dass Wasser nachgefüllt werden muss — zusätzlich zum Wasseralarm, den du auch in Flows nutzen kannst. Funktioniert nur, wenn dein Verdampfer einen Wasserstandssensor hat (siehe Sensoren / Hardware)."
               },
               "value": true
-            },
-            {
-              "id": "finishingSoonThresholdMinutes",
-              "type": "number",
-              "label": {
-                "en": "\"Finishing soon\" threshold",
-                "de": "Schwelle für \"bald fertig\""
-              },
-              "hint": {
-                "en": "How many minutes before automatic shut-off the \"sauna will be done heating soon\" Flow trigger should fire.",
-                "de": "Wie viele Minuten vor dem automatischen Abschalten der Flow-Trigger \"Sauna ist bald fertig geheizt\" auslösen soll."
-              },
-              "value": 10,
-              "attr": {
-                "min": 1,
-                "max": 60,
-                "step": 1
-              },
-              "units": {
-                "en": "min",
-                "de": "min"
-              }
             }
           ]
         },
         {
           "type": "group",
           "label": {
-            "en": "Advanced",
-            "de": "Erweitert"
+            "en": "Sensors / hardware",
+            "de": "Sensoren / Hardware"
           },
           "children": [
             {
-              "id": "pollInterval",
-              "type": "number",
+              "id": "waterSensorMode",
+              "type": "dropdown",
               "label": {
-                "en": "Status refresh interval (while heating)",
-                "de": "Aktualisierungsintervall (während des Heizens)"
+                "en": "Water-level sensor",
+                "de": "Wasserstandssensor"
               },
               "hint": {
-                "en": "How often the app fetches the sauna's status from the HUUM cloud while it's heating.",
-                "de": "Wie oft die App den Sauna-Status aus der HUUM-Cloud abruft, während sie heizt."
+                "en": "Whether your steamer has a water-level sensor wired up. \"Automatic\" trusts what the HUUM API reports. Choose \"Not connected\" if your sauna has none — the no-water alarm is then hidden (it could never fire anyway); use the reminder below instead.",
+                "de": "Ob dein Verdampfer einen Wasserstandssensor hat. \"Automatisch\" vertraut der HUUM-API. Wähle \"Nicht angeschlossen\", wenn deine Sauna keinen hat — der Wasseralarm wird dann ausgeblendet (er könnte ohnehin nie auslösen); nutze stattdessen die Erinnerung unten."
               },
-              "value": 30,
-              "attr": {
-                "min": 10,
-                "max": 300,
-                "step": 5
-              },
-              "units": {
-                "en": "sec",
-                "de": "Sek."
-              }
+              "value": "auto",
+              "values": [
+                { "id": "auto", "label": { "en": "Automatic (trust the API)", "de": "Automatisch (API vertrauen)" } },
+                { "id": "present", "label": { "en": "Connected", "de": "Angeschlossen" } },
+                { "id": "absent", "label": { "en": "Not connected", "de": "Nicht angeschlossen" } }
+              ]
             },
             {
-              "id": "idlePollInterval",
-              "type": "number",
+              "id": "doorSensorMode",
+              "type": "dropdown",
               "label": {
-                "en": "Status refresh interval (while idle)",
-                "de": "Aktualisierungsintervall (im Standby)"
+                "en": "Door sensor",
+                "de": "Türsensor"
               },
               "hint": {
-                "en": "How often the app checks in while the heater is off — slower on purpose to go easy on the HUUM cloud. A capability change (e.g. turning it on) always refreshes immediately regardless of this setting.",
-                "de": "Wie oft die App nachfragt, während der Ofen aus ist — bewusst langsamer, um die HUUM-Cloud zu schonen. Eine Aktion (z. B. Einschalten) aktualisiert unabhängig davon immer sofort."
+                "en": "Whether your sauna has a door contact sensor. Choose \"Not connected\" to hide the door alarm and skip the \"don't start with the door open\" safety check — otherwise a heater that always reports the door as open could never be started.",
+                "de": "Ob deine Sauna einen Türkontakt hat. Wähle \"Nicht angeschlossen\", um den Türalarm auszublenden und die Sicherheitsprüfung \"nicht bei offener Tür starten\" zu überspringen — sonst könnte ein Ofen, der die Tür immer als offen meldet, nie gestartet werden."
               },
-              "value": 300,
-              "attr": {
-                "min": 60,
-                "max": 1800,
-                "step": 30
-              },
-              "units": {
-                "en": "sec",
-                "de": "Sek."
-              }
+              "value": "auto",
+              "values": [
+                { "id": "auto", "label": { "en": "Automatic (trust the API)", "de": "Automatisch (API vertrauen)" } },
+                { "id": "present", "label": { "en": "Connected", "de": "Angeschlossen" } },
+                { "id": "absent", "label": { "en": "Not connected", "de": "Nicht angeschlossen" } }
+              ]
             },
             {
-              "id": "heaterPowerKw",
-              "type": "number",
+              "id": "waterCheckReminder",
+              "type": "checkbox",
               "label": {
-                "en": "Heater power (for Energy estimate)",
-                "de": "Ofenleistung (für Energieschätzung)"
+                "en": "Remind me to check the water before heating",
+                "de": "Vor dem Heizen an Wasser-Kontrolle erinnern"
               },
               "hint": {
-                "en": "The rated power of your HUUM heater in kW, as printed on its label. The HUUM API does not report real power draw, so Homey's Energy tab uses this to estimate consumption while heating.",
-                "de": "Die Nennleistung deines HUUM-Ofens in kW (siehe Typenschild). Die HUUM-API liefert keinen echten Stromverbrauch, daher nutzt Homeys Energie-Tab diesen Wert zur Schätzung während des Heizens."
+                "en": "Sends a Homey notification every time the sauna is switched on (from the app or a Flow), asking you to check the steamer water first. A manual stand-in for the water alarm when there is no water sensor.",
+                "de": "Sendet jedes Mal, wenn die Sauna eingeschaltet wird (per App oder Flow), eine Homey-Benachrichtigung mit der Bitte, zuerst das Verdampferwasser zu prüfen. Ein manueller Ersatz für den Wasseralarm, wenn kein Wassersensor vorhanden ist."
               },
-              "value": 6,
-              "attr": {
-                "min": 1,
-                "max": 15,
-                "step": 0.5
-              },
-              "units": {
-                "en": "kW",
-                "de": "kW"
-              }
+              "value": false
             }
           ]
         },
@@ -567,176 +554,11 @@
                 "en": "Light/fan connected",
                 "de": "Licht/Lüfter angeschlossen"
               },
-              "value": "-"
-            },
-            {
-              "id": "childLock",
-              "type": "label",
-              "label": {
-                "en": "Child lock",
-                "de": "Kindersicherung"
-              },
-              "value": "-"
-            },
-            {
-              "id": "remoteSafetyState",
-              "type": "label",
-              "label": {
-                "en": "Remote safety state",
-                "de": "Fernsicherheitsstatus"
-              },
-              "value": "-"
-            },
-            {
-              "id": "paymentEndDate",
-              "type": "label",
-              "label": {
-                "en": "Subscription valid until",
-                "de": "Abo gültig bis"
-              },
-              "value": "-"
-            },
-            {
-              "id": "deviceLimits",
-              "type": "label",
-              "label": {
-                "en": "Reported temperature/timer limits",
-                "de": "Gemeldete Temperatur-/Timer-Grenzen"
-              },
-              "value": "-"
-            }
-          ]
-        },
-        {
-          "type": "group",
-          "label": {
-            "en": "Statistics (read-only)",
-            "de": "Statistik (nur Anzeige)"
-          },
-          "children": [
-            {
-              "id": "totalHeatingTime",
-              "type": "label",
-              "label": {
-                "en": "Total heating time",
-                "de": "Gesamte Heizzeit"
-              },
               "hint": {
-                "en": "Tracked by this app since pairing — HUUM's cloud doesn't keep session history. Only counts time this app was running to observe it.",
-                "de": "Wird von dieser App seit dem Koppeln mitgezählt — die HUUM-Cloud speichert keine Sitzungshistorie. Zählt nur die Zeit, in der diese App lief und es beobachten konnte."
+                "en": "Full read-out (child lock, remote safety, subscription, limits, live temperature/humidity, statistics) is on the app settings page: More → Apps → HUUM Sauna → Configure.",
+                "de": "Vollständige Anzeige (Kindersicherung, Fernsicherheit, Abo, Grenzen, Live-Temperatur/Feuchte, Statistik) auf der App-Einstellungsseite: Mehr → Apps → HUUM Sauna → Konfigurieren."
               },
               "value": "-"
-            },
-            {
-              "id": "lastSessionSummary",
-              "type": "label",
-              "label": {
-                "en": "Last session",
-                "de": "Letzte Sitzung"
-              },
-              "value": "-"
-            }
-          ]
-        },
-        {
-          "type": "group",
-          "label": {
-            "en": "Profiles",
-            "de": "Profile"
-          },
-          "children": [
-            {
-              "id": "profile1Name",
-              "type": "text",
-              "label": {
-                "en": "Profile 1 name",
-                "de": "Profil 1 Name"
-              },
-              "value": "Familie"
-            },
-            {
-              "id": "profile1Temperature",
-              "type": "number",
-              "label": {
-                "en": "Profile 1 temperature",
-                "de": "Profil 1 Temperatur"
-              },
-              "value": 80,
-              "attr": { "min": 40, "max": 110, "step": 1 },
-              "units": { "en": "°C", "de": "°C" }
-            },
-            {
-              "id": "profile1Humidity",
-              "type": "number",
-              "label": {
-                "en": "Profile 1 humidity (ignored without a steamer)",
-                "de": "Profil 1 Luftfeuchtigkeit (ohne Verdampfer ignoriert)"
-              },
-              "value": 30,
-              "attr": { "min": 0, "max": 90, "step": 5 },
-              "units": { "en": "%", "de": "%" }
-            },
-            {
-              "id": "profile2Name",
-              "type": "text",
-              "label": {
-                "en": "Profile 2 name",
-                "de": "Profil 2 Name"
-              },
-              "value": "Kurz"
-            },
-            {
-              "id": "profile2Temperature",
-              "type": "number",
-              "label": {
-                "en": "Profile 2 temperature",
-                "de": "Profil 2 Temperatur"
-              },
-              "value": 90,
-              "attr": { "min": 40, "max": 110, "step": 1 },
-              "units": { "en": "°C", "de": "°C" }
-            },
-            {
-              "id": "profile2Humidity",
-              "type": "number",
-              "label": {
-                "en": "Profile 2 humidity (ignored without a steamer)",
-                "de": "Profil 2 Luftfeuchtigkeit (ohne Verdampfer ignoriert)"
-              },
-              "value": 10,
-              "attr": { "min": 0, "max": 90, "step": 5 },
-              "units": { "en": "%", "de": "%" }
-            },
-            {
-              "id": "profile3Name",
-              "type": "text",
-              "label": {
-                "en": "Profile 3 name",
-                "de": "Profil 3 Name"
-              },
-              "value": "Lang"
-            },
-            {
-              "id": "profile3Temperature",
-              "type": "number",
-              "label": {
-                "en": "Profile 3 temperature",
-                "de": "Profil 3 Temperatur"
-              },
-              "value": 70,
-              "attr": { "min": 40, "max": 110, "step": 1 },
-              "units": { "en": "°C", "de": "°C" }
-            },
-            {
-              "id": "profile3Humidity",
-              "type": "number",
-              "label": {
-                "en": "Profile 3 humidity (ignored without a steamer)",
-                "de": "Profil 3 Luftfeuchtigkeit (ohne Verdampfer ignoriert)"
-              },
-              "value": 40,
-              "attr": { "min": 0, "max": 90, "step": 5 },
-              "units": { "en": "%", "de": "%" }
             }
           ]
         }

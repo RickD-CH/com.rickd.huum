@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HUUM Sauna</title>
+  <script type="text/javascript" src="/homey.js" data-origin="settings"></script>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 16px; line-height: 1.45; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .04em; opacity: .6; margin: 26px 0 10px; }
+    .card { background: rgba(127,127,127,.09); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+    .row { display: flex; justify-content: space-between; gap: 12px; padding: 5px 0; }
+    .row .k { opacity: .65; }
+    .row .v { font-weight: 600; text-align: right; }
+    label { display: block; font-size: 13px; opacity: .7; margin: 10px 0 3px; }
+    input[type=text], input[type=number], select {
+      width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 14px;
+      border: 1px solid rgba(127,127,127,.35); border-radius: 8px; background: transparent; color: inherit;
+    }
+    .profile { border-top: 1px solid rgba(127,127,127,.2); padding-top: 8px; margin-top: 8px; }
+    .profile:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+    .grid3 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+    button {
+      margin-top: 14px; padding: 9px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+      border: 0; border-radius: 8px; background: #E85D2B; color: #fff;
+    }
+    button:disabled { opacity: .5; cursor: default; }
+    .hint { font-size: 12px; opacity: .6; margin-top: 6px; }
+    .radio { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: 14px; opacity: 1; }
+    .radio input { width: auto; }
+    .saved { color: #2e9e4f; font-size: 13px; margin-left: 10px; }
+    .err { color: #d23b3b; font-size: 13px; margin-top: 8px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <h1 id="title">HUUM Sauna</h1>
+  <div id="picker-wrap" hidden>
+    <label id="picker-label">Sauna</label>
+    <select id="picker"></select>
+  </div>
+
+  <div id="content" hidden>
+    <h2 id="h-info">Sauna</h2>
+    <div class="card" id="info"></div>
+
+    <h2 id="h-profiles">Profiles</h2>
+    <div class="card">
+      <div id="profiles"></div>
+      <button id="save-profiles" type="button">Save</button>
+      <span class="saved" id="saved-profiles" hidden>Saved</span>
+    </div>
+
+    <h2 id="h-advanced">Advanced</h2>
+    <div class="card">
+      <label id="l-poll">Status refresh while heating (sec)</label>
+      <input type="number" id="pollInterval" min="10" max="300" step="5" />
+      <label id="l-idle">Status refresh while idle (sec)</label>
+      <input type="number" id="idlePollInterval" min="60" max="1800" step="30" />
+      <label id="l-finish">"Finishing soon" threshold (min)</label>
+      <input type="number" id="finishingSoonThresholdMinutes" min="1" max="60" step="1" />
+      <button id="save-advanced" type="button">Save</button>
+      <span class="saved" id="saved-advanced" hidden>Saved</span>
+    </div>
+
+    <h2 id="h-power">Heater power (Energy estimate)</h2>
+    <div class="card">
+      <div class="radio">
+        <input type="radio" name="powerSource" id="ps-estimate" value="estimate" />
+        <label for="ps-estimate" id="l-ps-estimate" style="margin:0;opacity:1">Estimate from a kW value</label>
+      </div>
+      <div id="estimate-box">
+        <label id="l-kw">Heater power (kW)</label>
+        <input type="number" id="heaterPowerKw" min="1" max="15" step="0.5" />
+      </div>
+      <div class="radio">
+        <input type="radio" name="powerSource" id="ps-meter" value="meter" />
+        <label for="ps-meter" id="l-ps-meter" style="margin:0;opacity:1">Measure with a device</label>
+      </div>
+      <div id="meter-box">
+        <select id="powerMeterId"></select>
+        <div class="hint" id="meter-hint">Pick a device that reports power (e.g. your Shelly). Its live wattage is mirrored onto the sauna and used by the Energy tab.</div>
+        <div class="err" id="meter-err" hidden></div>
+      </div>
+      <button id="save-power" type="button">Save</button>
+      <span class="saved" id="saved-power" hidden>Saved</span>
+    </div>
+
+    <h2 id="h-stats">Statistics</h2>
+    <div class="card" id="stats"></div>
+  </div>
+
+  <div class="card" id="empty" hidden>
+    <span id="empty-text">No sauna paired yet. Add one from Devices first.</span>
+  </div>
+  <div class="err" id="fatal" hidden></div>
+
+  <script type="text/javascript" src="index.js"></script>
+</body>
+</html>

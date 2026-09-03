@@ -7,6 +7,9 @@
   "private": true,
   "author": "Richard Dubs",
   "scripts": {
-    "test": "node test/huum-api.test.js && node test/device.test.js && node test/driver.test.js && node test/locales.test.js && node test/manifest.test.js"
+    "test": "node test/huum-api.test.js && node test/device.test.js && node test/driver.test.js && node test/locales.test.js && node test/manifest.test.js && node test/api.test.js"
+  },
+  "dependencies": {
+    "homey-api": "^3.19.3"
   }
 }

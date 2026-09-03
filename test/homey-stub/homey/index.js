@@ -18,6 +18,8 @@ class Device {
 
   getStore() { return this.__store; }
 
+  getData() { return this.__data || { id: 'test-sauna' }; }
+
   getStoreValue(key) { return this.__store[key]; }
 
   async setStoreValue(key, value) { this.__store[key] = value; }
@@ -48,6 +50,10 @@ class Device {
   async setAvailable() { this.__available = true; this.__unavailableReason = null; }
 
   async setUnavailable(reason) { this.__available = false; this.__unavailableReason = reason; }
+
+  async setWarning(message) { this.__warning = message; }
+
+  async unsetWarning() { this.__warning = null; }
 
   getAvailable() { return this.__available; }
 

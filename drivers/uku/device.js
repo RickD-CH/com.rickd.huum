@@ -5,14 +5,18 @@ const {
   HuumApi, HuumAuthError, HuumSafetyError, STEAMER_ERROR_TEXTS, CONFIG_FLAGS, configHasFlag,
 } = require('../../lib/HuumApi');
 
-// Capabilities that only make sense if the corresponding hardware module
-// (per HuumStatusResponse.config) is actually present on this UKU.
-const STEAMER_CAPABILITIES = ['target_humidity', 'measure_humidity', 'alarm_water'];
-const LIGHT_CAPABILITIES = ['onoff.light'];
-
 const DEFAULT_POLL_INTERVAL_S = 30;
 const DEFAULT_IDLE_POLL_INTERVAL_S = 300;
 const DEFAULT_FINISHING_SOON_MINUTES = 10;
+const DEFAULT_HEATER_POWER_KW = 6;
+
+// Seeded on first run (previously the defaults of the removed device-settings
+// "Profiles" group).
+const DEFAULT_PROFILES = {
+  profile1Name: 'Familie', profile1Temperature: 80, profile1Humidity: 30,
+  profile2Name: 'Kurz', profile2Temperature: 90, profile2Humidity: 10,
+  profile3Name: 'Lang', profile3Temperature: 70, profile3Humidity: 40,
+};
 
 class HuumDevice extends Homey.Device {
 
@@ -28,6 +32,9 @@ class HuumDevice extends Homey.Device {
     }
     this._appliedCapabilityLimits = null;
     this._wasBelowFinishingSoonThreshold = false;
+    this._powerMeterInstance = null;
+
+    await this._migrateLegacySettings();
 
     // Detect which hardware modules (steamer/light) this UKU actually has
     // *before* registering capability listeners, so e.g. target_humidity
@@ -44,6 +51,7 @@ class HuumDevice extends Homey.Device {
 
     this._registerCapabilityListeners();
     await this._applyEnergySetting();
+    await this._bindPowerMeter().catch((err) => this.error('Power meter bind failed:', err.message));
 
     this._lastStatus = initialStatus;
     if (initialStatus) {
@@ -57,21 +65,138 @@ class HuumDevice extends Homey.Device {
 
   async onUninit() {
     this._clearPoll();
+    await this._unbindPowerMeter();
   }
 
   async onDeleted() {
     this._clearPoll();
+    await this._unbindPowerMeter();
   }
 
-  async onSettings({ oldSettings, newSettings, changedKeys }) {
-    if (changedKeys.includes('pollInterval') || changedKeys.includes('idlePollInterval')) {
-      // Re-schedule immediately with the new interval, using whatever
-      // state we last saw, instead of waiting for the old timer to fire.
-      this._scheduleNextPoll();
+  /**
+   * Profiles, poll intervals, the "finishing soon" threshold and the heater
+   * power moved off the device settings page onto the app settings page, and
+   * are stored in the device *store* now (settings must be declared in
+   * app.json to exist; the store is free-form). Copy any values a previous
+   * version of this app wrote as settings into the store, once.
+   */
+  async _migrateLegacySettings() {
+    // One-time: copy anything an older version wrote as a real device setting
+    // into the store (getSettings() may only expose still-declared settings,
+    // so this is best-effort).
+    if (!this.getStoreValue('cfgMigrated')) {
+      const legacy = this.getSettings() || {};
+      const keys = [
+        'pollInterval', 'idlePollInterval', 'finishingSoonThresholdMinutes', 'heaterPowerKw',
+        ...Object.keys(DEFAULT_PROFILES),
+      ];
+      for (const key of keys) {
+        const value = legacy[key];
+        if (value !== undefined && value !== null && this.getStoreValue(key) === undefined) {
+          // eslint-disable-next-line no-await-in-loop
+          await this.setStoreValue(key, value).catch(this.error);
+        }
+      }
+      await this.setStoreValue('cfgMigrated', true).catch(this.error);
     }
-    if (changedKeys.includes('heaterPowerKw')) {
-      await this._applyEnergySetting(newSettings.heaterPowerKw);
+    // Every init: make sure the 3 profiles hold *something* sensible.
+    for (const [key, value] of Object.entries(DEFAULT_PROFILES)) {
+      if (this.getStoreValue(key) === undefined) {
+        // eslint-disable-next-line no-await-in-loop
+        await this.setStoreValue(key, value).catch(this.error);
+      }
     }
+  }
+
+  async onSettings({ changedKeys }) {
+    // The only editable device settings left here are the Sensors/hardware
+    // group and the water-alarm notification toggle. A sensor-presence
+    // change can add or remove capabilities.
+    if (changedKeys.includes('waterSensorMode') || changedKeys.includes('doorSensorMode')) {
+      const status = this._lastStatus || {};
+      await this._reconcileCapabilities(status).catch((err) => this.error('Reconcile after settings failed:', err.message));
+      await this._applyStatus(status).catch((err) => this.error('Apply after settings failed:', err.message));
+    }
+  }
+
+  // --- config store helpers (app settings page writes these) ----------------
+
+  _cfg(key, fallback) {
+    const value = this.getStoreValue(key);
+    return (value === undefined || value === null) ? fallback : value;
+  }
+
+  async _setCfg(patch) {
+    for (const [key, value] of Object.entries(patch)) {
+      // eslint-disable-next-line no-await-in-loop
+      await this.setStoreValue(key, value);
+    }
+  }
+
+  /** Everything the app settings page needs for this device. */
+  getConfig() {
+    return {
+      profiles: [1, 2, 3].map((n) => ({
+        id: `profile${n}`,
+        name: this._cfg(`profile${n}Name`, `Profile ${n}`),
+        temperature: this._cfg(`profile${n}Temperature`, null),
+        humidity: this._cfg(`profile${n}Humidity`, null),
+      })),
+      advanced: {
+        pollInterval: this._cfg('pollInterval', DEFAULT_POLL_INTERVAL_S),
+        idlePollInterval: this._cfg('idlePollInterval', DEFAULT_IDLE_POLL_INTERVAL_S),
+        finishingSoonThresholdMinutes: this._cfg('finishingSoonThresholdMinutes', DEFAULT_FINISHING_SOON_MINUTES),
+      },
+      power: {
+        source: this._cfg('powerSource', 'estimate'),
+        meterId: this._cfg('powerMeterId', null),
+        heaterPowerKw: this._cfg('heaterPowerKw', DEFAULT_HEATER_POWER_KW),
+      },
+      hasSteamer: this.hasCapability('target_humidity'),
+    };
+  }
+
+  /** Called by api.js when the app settings page saves. */
+  async setConfig({ profiles, advanced, power } = {}) {
+    const patch = {};
+    if (Array.isArray(profiles)) {
+      profiles.forEach((p, i) => {
+        const n = i + 1;
+        if (p && p.name != null) patch[`profile${n}Name`] = String(p.name).slice(0, 40);
+        if (p && p.temperature != null && !Number.isNaN(Number(p.temperature))) {
+          patch[`profile${n}Temperature`] = Math.round(Number(p.temperature));
+        }
+        if (p && p.humidity != null && !Number.isNaN(Number(p.humidity))) {
+          patch[`profile${n}Humidity`] = Math.round(Number(p.humidity));
+        }
+      });
+    }
+    if (advanced) {
+      for (const key of ['pollInterval', 'idlePollInterval', 'finishingSoonThresholdMinutes']) {
+        if (advanced[key] != null && !Number.isNaN(Number(advanced[key]))) {
+          patch[key] = Math.round(Number(advanced[key]));
+        }
+      }
+    }
+    if (power) {
+      if (power.source) patch.powerSource = power.source === 'meter' ? 'meter' : 'estimate';
+      if ('meterId' in power) patch.powerMeterId = power.meterId || null;
+      if (power.heaterPowerKw != null && !Number.isNaN(Number(power.heaterPowerKw))) {
+        patch.heaterPowerKw = Number(power.heaterPowerKw);
+      }
+    }
+
+    await this._setCfg(patch);
+    this._scheduleNextPoll();
+    await this.applyPowerConfig();
+    return this.getConfig();
+  }
+
+  async applyPowerConfig() {
+    const status = this._lastStatus || {};
+    await this._reconcileCapabilities(status).catch((err) => this.error('Reconcile power capability failed:', err.message));
+    await this._bindPowerMeter().catch((err) => this.error('Power meter (re)bind failed:', err.message));
+    await this._applyEnergySetting();
   }
 
   /**
@@ -82,8 +207,8 @@ class HuumDevice extends Homey.Device {
    */
   _scheduleNextPoll() {
     this._clearPoll();
-    const activeSeconds = this.getSetting('pollInterval') || DEFAULT_POLL_INTERVAL_S;
-    const idleSeconds = this.getSetting('idlePollInterval') || DEFAULT_IDLE_POLL_INTERVAL_S;
+    const activeSeconds = this._cfg('pollInterval', DEFAULT_POLL_INTERVAL_S);
+    const idleSeconds = this._cfg('idlePollInterval', DEFAULT_IDLE_POLL_INTERVAL_S);
     const seconds = (this._lastStatus && this._lastStatus.isHeating) ? activeSeconds : idleSeconds;
 
     this._pollTimeout = this.homey.setTimeout(() => {
@@ -119,11 +244,13 @@ class HuumDevice extends Homey.Device {
   /**
    * Homey's Energy tab has no way to know a HUUM heater's real power draw
    * (the API doesn't report it), so we approximate it from the user-entered
-   * "heaterPowerKw" setting. app.json declares a static 6kW default;
-   * this refines it per device if the SDK on this Homey supports it.
+   * "heaterPowerKw" value — unless the user linked a real power meter, in
+   * which case the mirrored `measure_power` capability is what Energy uses
+   * and the approximation is left off.
    */
   async _applyEnergySetting(heaterPowerKw) {
-    const kw = heaterPowerKw || this.getSetting('heaterPowerKw');
+    if (this._usingPowerMeter()) return;
+    const kw = heaterPowerKw || this._cfg('heaterPowerKw', DEFAULT_HEATER_POWER_KW);
     if (typeof kw !== 'number' || !(typeof this.setEnergy === 'function')) return;
     try {
       await this.setEnergy({ approximation: { usageOn: Math.round(kw * 1000), usageOff: 0 } });
@@ -132,20 +259,54 @@ class HuumDevice extends Homey.Device {
     }
   }
 
-  _registerCapabilityListeners() {
-    this.registerCapabilityListener('onoff', async (value) => {
-      if (value) {
-        const temperature = this.getCapabilityValue('target_temperature') || 80;
-        const humidity = this._getTargetHumidityPercent();
-        await this._start(temperature, humidity);
-      } else {
-        await this._withAuthHandling(this.api.turnOff());
+  _usingPowerMeter() {
+    return this._cfg('powerSource', 'estimate') === 'meter' && !!this._cfg('powerMeterId', null);
+  }
+
+  async _bindPowerMeter() {
+    await this._unbindPowerMeter();
+    if (!this._usingPowerMeter()) return;
+    const meterId = this._cfg('powerMeterId', null);
+    try {
+      const api = await this.homey.app.getHomeyApi();
+      const meter = await api.devices.getDevice({ id: meterId });
+      const capObj = meter.capabilitiesObj && meter.capabilitiesObj.measure_power;
+      if (capObj && typeof capObj.value === 'number') {
+        await this._setCapabilitySafe('measure_power', capObj.value);
       }
-      // The command above already succeeded at this point — a failure to
-      // immediately re-fetch the fresh status must not make Homey report
-      // the action itself as failed, so it's logged, not thrown.
-      await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
-    });
+      this._powerMeterInstance = meter.makeCapabilityInstance('measure_power', (value) => {
+        this._setCapabilitySafe('measure_power', typeof value === 'number' ? value : null)
+          .catch((err) => this.error('measure_power mirror failed:', err.message));
+      });
+      this.log('Linked power meter', meterId);
+    } catch (err) {
+      // Permission missing, meter deleted, older firmware — fall back to the
+      // kW estimate rather than break the device.
+      this.error('Could not link power meter, using kW estimate instead:', err.message);
+      await this._applyEnergySetting();
+    }
+  }
+
+  async _unbindPowerMeter() {
+    if (this._powerMeterInstance) {
+      try {
+        this._powerMeterInstance.destroy();
+      } catch (err) {
+        this.error('Power meter unbind failed:', err.message);
+      }
+      this._powerMeterInstance = null;
+    }
+  }
+
+  _registerCapabilityListeners() {
+    this.registerCapabilityListener('onoff', (value) => this._setPower(value));
+
+    // The thermostat tile shows this instead of a bare on/off toggle, so the
+    // sauna reads as "Off" rather than "Heating to 80°" while it's idle. It
+    // just proxies onoff.
+    if (this.hasCapability('thermostat_mode')) {
+      this.registerCapabilityListener('thermostat_mode', (mode) => this._setPower(mode === 'heat'));
+    }
 
     this.registerCapabilityListener('target_temperature', async (value) => {
       // The HUUM API has no separate "set temperature while off" endpoint;
@@ -186,6 +347,23 @@ class HuumDevice extends Homey.Device {
     }
   }
 
+  /** Turn the sauna on/off (shared by the onoff and thermostat_mode tiles). */
+  async _setPower(on) {
+    const wasOn = !!this.getCapabilityValue('onoff');
+    if (on) {
+      const temperature = this.getCapabilityValue('target_temperature') || 80;
+      await this._start(temperature, this._getTargetHumidityPercent());
+      if (!wasOn) await this._maybeWaterCheckReminder();
+    } else {
+      await this._withAuthHandling(this.api.turnOff());
+    }
+    // Keep the other tile in sync immediately; the status refresh below
+    // corrects both from the API. A refresh hiccup must not fail the action.
+    await this._setCapabilitySafe('onoff', on);
+    await this._setCapabilitySafe('thermostat_mode', on ? 'heat' : 'off');
+    await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
+  }
+
   /**
    * Wraps a HuumApi call so that an auth failure consistently marks the
    * device unavailable (with a clear, translated reason) no matter which
@@ -208,9 +386,44 @@ class HuumDevice extends Homey.Device {
     return typeof value === 'number' ? Math.round(value * 100) : undefined;
   }
 
+  /**
+   * `present`/`absent` from the device settings force the answer; `auto`
+   * derives it — the steamer's water sensor from the API's `config` bitmask,
+   * the door sensor is assumed present (HUUM's API never reports whether a
+   * door contact is wired up).
+   */
+  _sensorPresent(kind, status) {
+    const mode = kind === 'water' ? this.getSetting('waterSensorMode') : this.getSetting('doorSensorMode');
+    if (mode === 'present') return true;
+    if (mode === 'absent') return false;
+    if (kind === 'water') return configHasFlag(status && status.config, CONFIG_FLAGS.STEAMER);
+    return true;
+  }
+
+  async _maybeWaterCheckReminder() {
+    if (!this.getSetting('waterCheckReminder')) return;
+    await this.homey.notifications.createNotification({
+      excerpt: this.homey.__('notifications.water_check_reminder', { name: this.getName() }),
+    }).catch((err) => this.error('Failed to create water-check reminder:', err.message));
+  }
+
   async _start(temperature, humidityPercent) {
+    // The UKU can require someone to confirm safety on the physical panel
+    // before it accepts a remote start (status.remoteSafetyState). The
+    // official app blocks the start with the same message.
+    const last = this._lastStatus;
+    if (last && typeof last.remoteSafetyState === 'string'
+      && last.remoteSafetyState.toLowerCase() !== 'safe') {
+      throw new Error(this.homey.__('errors.remote_disabled'));
+    }
     try {
-      await this._withAuthHandling(this.api.turnOn({ temperature, humidity: humidityPercent }));
+      const args = { temperature, humidity: humidityPercent };
+      if (!this._sensorPresent('door', this._lastStatus)) {
+        // No door contact wired up → the API would otherwise report the
+        // door as permanently open and block every start.
+        args.safetyOverride = true;
+      }
+      await this._withAuthHandling(this.api.turnOn(args));
     } catch (err) {
       if (err instanceof HuumSafetyError) {
         throw new Error(this.homey.__('errors.door_open'));
@@ -227,7 +440,9 @@ class HuumDevice extends Homey.Device {
 
   /** Used by the "start_with_temperature_and_humidity" Flow action card. */
   async startWithTemperatureAndHumidity(temperature, humidityPercent) {
+    const wasOff = !this.getCapabilityValue('onoff');
     await this._start(temperature, humidityPercent);
+    if (wasOff) await this._maybeWaterCheckReminder();
     await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
   }
 
@@ -259,23 +474,39 @@ class HuumDevice extends Homey.Device {
   }
 
   /**
-   * Adds/removes the steamer- and light-only capabilities to match what
-   * this UKU is actually configured for (HuumStatusResponse.config),
-   * detected once at startup and re-checked on every poll — see "Kann
-   * ermittelt werden, ob ein Verdampfer angeschlossen ist?" in the README.
+   * Adds/removes the steamer-, light-, sensor- and power-meter-dependent
+   * capabilities to match what this UKU is actually configured for
+   * (HuumStatusResponse.config) and what the owner declared in the
+   * Sensors/hardware settings. Detected once at startup and re-checked on
+   * every poll.
    */
   async _reconcileCapabilities(status) {
+    status = status || {};
+    const hasSteamer = configHasFlag(status.config, CONFIG_FLAGS.STEAMER);
+    const hasLight = configHasFlag(status.config, CONFIG_FLAGS.LIGHT);
+    const waterSensor = this._sensorPresent('water', status);
+    const doorSensor = this._sensorPresent('door', status);
+
     const wanted = new Map([
-      ...STEAMER_CAPABILITIES.map((id) => [id, configHasFlag(status.config, CONFIG_FLAGS.STEAMER)]),
-      ...LIGHT_CAPABILITIES.map((id) => [id, configHasFlag(status.config, CONFIG_FLAGS.LIGHT)]),
+      // Always-on capabilities that a device paired by an older version of
+      // this app may still be missing.
+      ['thermostat_mode', true],
+      ['target_humidity', hasSteamer],
+      ['measure_humidity', hasSteamer],
+      ['alarm_water', hasSteamer && waterSensor],
+      ['onoff.light', hasLight],
+      ['alarm_contact', doorSensor],
+      ['measure_power', this._usingPowerMeter()],
     ]);
 
     for (const [capabilityId, shouldHave] of wanted) {
       const has = this.hasCapability(capabilityId);
       if (shouldHave && !has) {
+        // eslint-disable-next-line no-await-in-loop
         await this.addCapability(capabilityId)
           .catch((err) => this.error(`Failed to add capability ${capabilityId}:`, err.message));
       } else if (!shouldHave && has) {
+        // eslint-disable-next-line no-await-in-loop
         await this.removeCapability(capabilityId)
           .catch((err) => this.error(`Failed to remove capability ${capabilityId}:`, err.message));
       }
@@ -284,17 +515,21 @@ class HuumDevice extends Homey.Device {
 
   async _applyStatus(status) {
     await this._setCapabilitySafe('onoff', status.isHeating);
+    await this._setCapabilitySafe('thermostat_mode', status.isHeating ? 'heat' : 'off');
     await this._setCapabilitySafe('measure_temperature', status.temperature);
     await this._setCapabilitySafe('target_temperature', status.targetTemperature);
     await this._setCapabilitySafe('measure_humidity', status.humidity);
     if (typeof status.targetHumidity === 'number') {
       await this._setCapabilitySafe('target_humidity', status.targetHumidity / 100);
     }
+    // _setCapabilitySafe is a no-op when the capability was removed (door
+    // sensor declared absent), so no extra guard needed here.
     await this._setCapabilitySafe('alarm_contact', !status.doorClosed);
     if (this.hasCapability('onoff.light') && typeof status.light === 'number') {
       await this._setCapabilitySafe('onoff.light', status.light !== 0);
     }
 
+    await this._syncWarnings(status);
     await this._syncSafetyAlarms(status);
     await this._syncTimeRemaining(status);
     await this._trackSessionStats(status);
@@ -304,9 +539,37 @@ class HuumDevice extends Homey.Device {
     return status;
   }
 
+  /**
+   * Mirrors the official HUUM app's banners as a Homey device warning: the
+   * two conditions that actually stop a remote start — the UKU's remote
+   * safety lock, and an open door.
+   */
+  async _syncWarnings(status) {
+    if (typeof this.setWarning !== 'function') return;
+    const parts = [];
+    if (typeof status.remoteSafetyState === 'string' && status.remoteSafetyState.toLowerCase() !== 'safe') {
+      parts.push(this.homey.__('warnings.remote_disabled'));
+    }
+    if (this.hasCapability('alarm_contact') && status.doorClosed === false) {
+      parts.push(this.homey.__('warnings.door_open'));
+    }
+    const message = parts.join(' ');
+    if (message === this._lastWarning) return;
+    this._lastWarning = message;
+    try {
+      if (message) await this.setWarning(message);
+      else await this.unsetWarning();
+    } catch (err) {
+      this.error('Could not set device warning:', err.message);
+    }
+  }
+
   async _syncSafetyAlarms(status) {
-    const hadWaterAlarm = this.hasCapability('alarm_water') ? this.getCapabilityValue('alarm_water') : false;
-    const hasWaterAlarm = status.steamerError !== null;
+    const hasWaterCapability = this.hasCapability('alarm_water');
+    const hadWaterAlarm = hasWaterCapability ? this.getCapabilityValue('alarm_water') : false;
+    // steamerError 0 (or null) means "no problem"; only a positive code is an
+    // actual fault (the UKU manual documents code 1 = no water).
+    const hasWaterAlarm = hasWaterCapability && typeof status.steamerError === 'number' && status.steamerError > 0;
     await this._setCapabilitySafe('alarm_water', hasWaterAlarm);
     await this._setCapabilitySafe('alarm_generic', status.isEmergencyStop);
 
@@ -328,7 +591,7 @@ class HuumDevice extends Homey.Device {
     }
     await this._setCapabilitySafe('huum_time_remaining', minutesRemaining);
 
-    const threshold = this.getSetting('finishingSoonThresholdMinutes') || DEFAULT_FINISHING_SOON_MINUTES;
+    const threshold = this._cfg('finishingSoonThresholdMinutes', DEFAULT_FINISHING_SOON_MINUTES);
     const isBelowThreshold = status.isHeating && minutesRemaining > 0 && minutesRemaining <= threshold;
 
     if (isBelowThreshold && !this._wasBelowFinishingSoonThreshold) {
@@ -423,26 +686,28 @@ class HuumDevice extends Homey.Device {
     return `${dateStr} (${durationStr}), ${temperatureStr}${humidityStr}`;
   }
 
-  /** Used by the "start_with_profile" Flow action card. */
+  /** Used by the "start_with_profile" Flow action card and the app page. */
   async startWithProfile(profileId) {
-    const temperature = this.getSetting(`${profileId}Temperature`);
+    const temperature = this._cfg(`${profileId}Temperature`, null);
     if (typeof temperature !== 'number') {
       throw new Error(this.homey.__('errors.profile_not_configured'));
     }
-    const humidity = this.getSetting(`${profileId}Humidity`);
+    const wasOff = !this.getCapabilityValue('onoff');
+    const humidity = this._cfg(`${profileId}Humidity`, undefined);
     await this._start(temperature, humidity);
+    if (wasOff) await this._maybeWaterCheckReminder();
     await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
   }
 
   /** Used by the "save_profile" Flow action card. */
   async saveProfile(profileId) {
     const temperature = this.getCapabilityValue('target_temperature');
-    const settings = { [`${profileId}Temperature`]: temperature };
+    const patch = { [`${profileId}Temperature`]: temperature };
     const humidityPercent = this._getTargetHumidityPercent();
     if (typeof humidityPercent === 'number') {
-      settings[`${profileId}Humidity`] = humidityPercent;
+      patch[`${profileId}Humidity`] = humidityPercent;
     }
-    await this.setSettings(settings);
+    await this._setCfg(patch);
   }
 
   /**
@@ -469,21 +734,34 @@ class HuumDevice extends Homey.Device {
     }
   }
 
-  async _syncInfoSettings(status) {
-    const config = status.saunaConfig;
+  /** The full read-only picture of the sauna, for settings + the app page. */
+  _buildInfoModel(status) {
+    const src = status || this._lastStatus || {};
+    const config = src.saunaConfig;
     const yesNo = (bool) => this.homey.__(bool ? 'labels.yes' : 'labels.no');
-    const settings = {
-      currentStatus: this.homey.__(`status.${status.statusCode}`) || status.statusText || '-',
-      steamerInstalled: yesNo(configHasFlag(status.config, CONFIG_FLAGS.STEAMER)),
-      lightInstalled: yesNo(configHasFlag(status.config, CONFIG_FLAGS.LIGHT)),
+    return {
+      currentStatus: this.homey.__(`status.${src.statusCode}`) || src.statusText || '-',
+      steamerInstalled: yesNo(configHasFlag(src.config, CONFIG_FLAGS.STEAMER)),
+      lightInstalled: yesNo(configHasFlag(src.config, CONFIG_FLAGS.LIGHT)),
       childLock: config ? String(config.childLock) : '-',
-      remoteSafetyState: status.remoteSafetyState || '-',
-      paymentEndDate: status.paymentEndDate || '-',
+      remoteSafetyState: src.remoteSafetyState || '-',
+      paymentEndDate: src.paymentEndDate || '-',
       deviceLimits: config
-        ? `${config.minTemp}–${config.maxTemp} °C, timer ${config.minTimer}–${config.maxTimer} min`
+        ? `${config.minTemp}–${config.maxTemp} °C${config.maxTimer ? `, timer ${config.minTimer}–${config.maxTimer} min` : ''}`
         : '-',
       totalHeatingTime: this._formatDuration(this.getStoreValue('totalHeatingMinutes') || 0),
       lastSessionSummary: this._buildSessionSummaryText(),
+    };
+  }
+
+  async _syncInfoSettings(status) {
+    const model = this._buildInfoModel(status);
+    // Only the three fields still shown in device settings; the rest of the
+    // read-out lives on the app settings page (_buildInfoModel feeds both).
+    const settings = {
+      currentStatus: model.currentStatus,
+      steamerInstalled: model.steamerInstalled,
+      lightInstalled: model.lightInstalled,
     };
 
     const current = this.getSettings();
@@ -491,6 +769,32 @@ class HuumDevice extends Homey.Device {
     if (!changed) return;
 
     await this.setSettings(settings).catch((err) => this.error('Failed to update info settings:', err.message));
+  }
+
+  /** Everything the app settings page shows for this sauna. */
+  getPublicState() {
+    const s = this._lastStatus || {};
+    return {
+      id: this.getData().id,
+      name: this.getName(),
+      available: this.getAvailable(),
+      heating: !!this.getCapabilityValue('onoff'),
+      measureTemperature: this.getCapabilityValue('measure_temperature') ?? null,
+      targetTemperature: this.getCapabilityValue('target_temperature') ?? null,
+      measureHumidity: this.hasCapability('measure_humidity') ? (this.getCapabilityValue('measure_humidity') ?? null) : null,
+      targetHumidity: this.hasCapability('target_humidity') ? (this.getCapabilityValue('target_humidity') ?? null) : null,
+      timeRemaining: this.getCapabilityValue('huum_time_remaining') ?? null,
+      doorOpen: this.hasCapability('alarm_contact') ? !!this.getCapabilityValue('alarm_contact') : null,
+      measurePower: this.hasCapability('measure_power') ? (this.getCapabilityValue('measure_power') ?? null) : null,
+      statusText: s.statusText || null,
+      info: this._buildInfoModel(s),
+      stats: {
+        sessionCount: this.getStoreValue('sessionCount') || 0,
+        totalHeatingMinutes: this.getStoreValue('totalHeatingMinutes') || 0,
+        lastSession: this.getStoreValue('lastSession') || null,
+      },
+      config: this.getConfig(),
+    };
   }
 
   async _setCapabilitySafe(capabilityId, value) {

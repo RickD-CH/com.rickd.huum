@@ -30,6 +30,7 @@ const { HuumAuthError, HuumSafetyError } = require(path.join(APP_DIR, 'lib', 'Hu
 function makeHomeyApi() {
   const timers = [];
   const triggeredCards = [];
+  const notifications = [];
   return {
     __(key, vars) {
       const value = key.split('.').reduce((o, k) => (o ? o[k] : undefined), enLocale);
@@ -44,8 +45,9 @@ function makeHomeyApi() {
       }),
     },
     __triggeredCards: triggeredCards,
+    __notifications: notifications,
     notifications: {
-      createNotification: async () => {},
+      createNotification: async (n) => { notifications.push(n); },
     },
     setTimeout(fn, ms) {
       const id = { fn, ms };
@@ -165,7 +167,9 @@ async function testReconcileCapabilitiesAddsAndRemoves() {
 
 async function testAdaptivePollIntervalPicksActiveVsIdle() {
   const device = makeDevice({ capabilities: {} });
-  device.__settings = { pollInterval: 30, idlePollInterval: 300 };
+  // poll intervals live in the device store now (moved to the app settings page)
+  device.__store.pollInterval = 30;
+  device.__store.idlePollInterval = 300;
 
   device._lastStatus = { isHeating: true };
   device._scheduleNextPoll();
@@ -228,12 +232,12 @@ async function testSaveAndStartWithProfile() {
   const device = makeDevice({
     capabilities: { target_temperature: 88, target_humidity: 0.2, onoff: true },
   });
-  device.__settings = { profile1Temperature: undefined, profile1Humidity: undefined };
 
   await device.saveProfile('profile1');
-  assert.strictEqual(device.getSetting('profile1Temperature'), 88);
-  assert.strictEqual(device.getSetting('profile1Humidity'), 20);
-  console.log('OK: saveProfile() stores the device\'s current temperature/humidity into that profile\'s settings');
+  // profiles are stored in the device store now (edited from the app settings page)
+  assert.strictEqual(device.getStoreValue('profile1Temperature'), 88);
+  assert.strictEqual(device.getStoreValue('profile1Humidity'), 20);
+  console.log('OK: saveProfile() stores the device\'s current temperature/humidity into that profile');
 
   let capturedTurnOn = null;
   device.api = { turnOn: async (args) => { capturedTurnOn = args; return {}; } };
@@ -243,8 +247,7 @@ async function testSaveAndStartWithProfile() {
 }
 
 async function testStartWithUnconfiguredProfileThrows() {
-  const device = makeDevice({ capabilities: {} });
-  device.__settings = {}; // profile2Temperature never set
+  const device = makeDevice({ capabilities: {} }); // profile2Temperature never set
 
   let apiCalled = false;
   device.api = { turnOn: async () => { apiCalled = true; return {}; } };
@@ -255,6 +258,98 @@ async function testStartWithUnconfiguredProfileThrows() {
   );
   assert.strictEqual(apiCalled, false, 'must not call the API with an undefined temperature');
   console.log('OK: starting an unconfigured profile is rejected with a translated message, no API call made');
+}
+
+async function testWaterSensorAbsentHidesAlarm() {
+  // Owner declared "no water sensor" — alarm_water must be removed even
+  // though the sauna has a steamer (config=3), and stay gone.
+  const device = makeDevice({ capabilities: { onoff: false, alarm_water: false } });
+  device.__settings = { waterSensorMode: 'absent' };
+
+  await device._reconcileCapabilities({ config: 3 });
+  assert.strictEqual(device.hasCapability('alarm_water'), false, 'no water sensor -> alarm_water removed');
+  assert.strictEqual(device.hasCapability('target_humidity'), true, 'humidity control still added (steamer present)');
+  console.log('OK: declaring "no water sensor" hides alarm_water even with a steamer');
+}
+
+async function testDoorSensorAbsentOverridesSafetyCheck() {
+  const device = makeDevice({ capabilities: { onoff: false, target_temperature: 80 } });
+  device.__settings = { doorSensorMode: 'absent' };
+
+  let captured = null;
+  device.api = { turnOn: async (args) => { captured = args; return {}; } };
+  await device._start(80, undefined);
+
+  assert.strictEqual(captured.safetyOverride, true, 'no door sensor -> the HUUM door-open check is overridden');
+  console.log('OK: declaring "no door sensor" overrides the door-open safety block so the sauna can start');
+}
+
+async function testRemoteSafetyBlocksStartAndWarns() {
+  const device = makeDevice({
+    capabilities: {
+      onoff: false, target_temperature: 80, alarm_contact: false, alarm_generic: false,
+    },
+  });
+  device.api = { turnOn: async () => ({}) };
+
+  device._lastStatus = { remoteSafetyState: 'notSafe' };
+  await assert.rejects(
+    () => device._start(80, undefined),
+    (err) => err.message === enLocale.errors.remote_disabled,
+    'a start is blocked while the UKU remote-safety lock is engaged',
+  );
+
+  await device._syncWarnings({ remoteSafetyState: 'notSafe', doorClosed: true });
+  assert.ok(/UKU/.test(device.__warning), 'device shows the remote-disabled warning');
+
+  await device._syncWarnings({ remoteSafetyState: 'safe', doorClosed: true });
+  assert.strictEqual(device.__warning, null, 'warning clears once remote control is safe again');
+  console.log('OK: remote-safety lock blocks a start and surfaces a device warning');
+}
+
+async function testThermostatModeProxiesOnoff() {
+  const device = makeDevice({
+    capabilities: {
+      onoff: false, thermostat_mode: 'off', target_temperature: 80,
+    },
+  });
+  let turnedOn = null;
+  device.api = {
+    turnOn: async (args) => { turnedOn = args; return {}; },
+    turnOff: async () => ({}),
+    getStatus: async () => { throw new Error('no refresh in test'); },
+  };
+  device._registerCapabilityListeners();
+
+  await device.triggerCapabilityListener('thermostat_mode', 'heat');
+  assert.ok(turnedOn, 'setting thermostat_mode=heat starts the sauna');
+  assert.strictEqual(device.getCapabilityValue('onoff'), true, 'onoff kept in sync');
+  assert.strictEqual(device.getCapabilityValue('thermostat_mode'), 'heat');
+  console.log('OK: the thermostat_mode tile proxies onoff (so the sauna reads "Off" when idle)');
+}
+
+async function testWaterAlarmIgnoresZeroSteamerError() {
+  const device = makeDevice({ capabilities: { alarm_water: false, alarm_generic: false } });
+  await device._syncSafetyAlarms({ steamerError: 0, isEmergencyStop: false });
+  assert.strictEqual(device.getCapabilityValue('alarm_water'), false, 'steamerError 0 is not a water alarm');
+  await device._syncSafetyAlarms({ steamerError: 1, isEmergencyStop: false });
+  assert.strictEqual(device.getCapabilityValue('alarm_water'), true, 'steamerError 1 is a water alarm');
+  console.log('OK: water alarm only fires on a positive steamerError code, not 0');
+}
+
+async function testWaterCheckReminderFiresOnStart() {
+  const device = makeDevice({
+    capabilities: { onoff: false, target_temperature: 80, target_humidity: 0.3 },
+  });
+  device.__settings = { waterCheckReminder: true };
+  device.api = { turnOn: async () => ({}), getStatus: async () => { throw new Error('no refresh in test'); } };
+  device._registerCapabilityListeners();
+
+  await device.triggerCapabilityListener('onoff', true);
+
+  const note = device.homey.__notifications.find((n) => /check the steamer water/i.test(n.excerpt));
+  assert.ok(note, 'turning the sauna on posts the water-check reminder notification');
+  console.log('OK: the water-check reminder fires once when the sauna is switched on');
 }
 
 (async () => {
@@ -268,6 +363,12 @@ async function testStartWithUnconfiguredProfileThrows() {
   await testSessionTrackingIgnoresEndWithNoKnownStart();
   await testSaveAndStartWithProfile();
   await testStartWithUnconfiguredProfileThrows();
+  await testWaterSensorAbsentHidesAlarm();
+  await testDoorSensorAbsentOverridesSafetyCheck();
+  await testRemoteSafetyBlocksStartAndWarns();
+  await testThermostatModeProxiesOnoff();
+  await testWaterAlarmIgnoresZeroSteamerError();
+  await testWaterCheckReminderFiresOnStart();
   console.log('\nAll device.js exception-handling tests passed.');
 })().catch((err) => {
   console.error('TEST FAILED:', err);

@@ -5,6 +5,17 @@ const {
   HuumApi, HuumAuthError, CONFIG_FLAGS, configHasFlag,
 } = require('../../lib/HuumApi');
 
+/**
+ * The HUUM API's `saunaName` is often just the controller's number
+ * (e.g. "24531"). Prefix a bare number with "Sauna " so the paired device
+ * isn't called a lone number; keep any real name the user set as-is.
+ */
+function buildDeviceName(saunaName) {
+  const raw = (saunaName == null ? '' : String(saunaName)).trim();
+  if (!raw) return 'HUUM Sauna';
+  return /^\d+$/.test(raw) ? `Sauna ${raw}` : raw;
+}
+
 class HuumDriver extends Homey.Driver {
 
   async onInit() {
@@ -60,7 +71,7 @@ class HuumDriver extends Homey.Driver {
 
       return [
         {
-          name: status.saunaName || 'HUUM Sauna',
+          name: buildDeviceName(status.saunaName),
           data: {
             id: credentials.username.toLowerCase(),
           },

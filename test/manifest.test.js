@@ -56,8 +56,17 @@ console.log('OK: author/donate info present and matches the no-public-email conv
 // --- 1.7 Brand color, SDK, permissions ------------------------------------
 assert.match(appJson.brandColor || '', /^#[0-9a-fA-F]{6}$/, 'brandColor must be set as a hex color (guideline 1.7)');
 assert.strictEqual(appJson.sdk, 3, 'new apps must be built on SDK v3 (guideline 1.14)');
-assert.deepStrictEqual(appJson.permissions, [], 'no permissions should be requested unless justified (guideline 1.15) — update this test deliberately if that ever changes');
-console.log('OK: brandColor present, SDK v3, no unjustified permissions');
+// `homey:manager:api` is requested so the user can link a real power meter
+// (e.g. a Shelly) for the Energy estimate, from the app settings page. This
+// permission is Homey-Cloud-incompatible and would be scrutinised at App
+// Store review — which is fine: this app is a personal `homey app install`,
+// hence `platforms: ["local"]` too.
+assert.deepStrictEqual(
+  appJson.permissions, ['homey:manager:api'],
+  'the only expected permission is homey:manager:api (power-meter linking) — update this test deliberately if that changes',
+);
+assert.deepStrictEqual(appJson.platforms, ['local'], 'app is local-only (app settings page + manager:api are not supported on Homey Cloud)');
+console.log('OK: brandColor present, SDK v3, permissions limited to the justified homey:manager:api');
 
 // --- 1.5/1.6 Icons ---------------------------------------------------------
 const appIconPath = path.join(APP_DIR, 'assets', 'icon.svg');

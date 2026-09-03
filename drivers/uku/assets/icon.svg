@@ -1,28 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 960">
-  <!-- Driver icon: the same UKU wall control panel as the app icon, but
-       from an angled/side view (per guideline: prefer an angle over a
-       front-facing view for driver icons) — panel as a perspective
-       trapezoid, dial as a foreshortened ellipse, angled display slot,
-       small wall-mount marks. Deliberately a different composition from
-       the app icon; outline only, transparent background, full 960x960
-       canvas. -->
-  <g fill="none" stroke="#000000" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
-    <!-- wall mount -->
-    <line x1="170" y1="300" x2="115" y2="288"/>
-    <line x1="170" y1="650" x2="115" y2="662"/>
-
-    <!-- panel body, angled -->
-    <path d="M170 190 L730 130 L730 680 L170 790 Z"/>
-
-    <!-- dial, foreshortened -->
-    <ellipse cx="460" cy="440" rx="140" ry="185"/>
-    <ellipse cx="460" cy="440" rx="98" ry="130"/>
-
-    <!-- setting pointer -->
-    <line x1="460" y1="440" x2="548" y2="345"/>
-    <circle cx="460" cy="440" r="13" fill="#000000" stroke="none"/>
-
-    <!-- digital display, angled -->
-    <path d="M398 648 L562 632 L562 698 L398 714 Z"/>
+  <!-- Driver icon: the HUUM UKU wall panel — an upright rounded panel with
+       a digital readout and a large control knob. One colour, no
+       background, full 960 canvas. Different subject from the app icon
+       (which is the heater itself). -->
+  <rect x="252" y="130" width="456" height="700" rx="72" fill="none" stroke="#111" stroke-width="44"/>
+  <g fill="#111">
+    <rect x="342" y="252" width="276" height="86" rx="20"/>
+    <circle cx="480" cy="576" r="122"/>
   </g>
 </svg>
