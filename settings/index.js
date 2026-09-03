@@ -3,9 +3,12 @@
 
 const DE = (navigator.language || 'en').toLowerCase().startsWith('de');
 const T = DE ? {
-  title: 'HUUM Sauna', picker: 'Sauna',
+  title: 'HUUM UKU Sauna', picker: 'Sauna',
   info: 'Sauna', profiles: 'Profile', advanced: 'Erweitert',
-  power: 'Ofenleistung (Energieschätzung)', stats: 'Statistik',
+  power: 'Ofenleistung (Energieschätzung)', stats: 'Statistik', costs: 'Kosten',
+  price: 'Strompreis pro kWh',
+  priceHint: '0 lassen, um Kosten auszublenden. Nutzt das verknüpfte Messgerät, sonst die kW-Schätzung oben.',
+  sTotalKwh: 'Gesamt-Verbrauch', sTotalCost: 'Gesamt-Kosten',
   poll: 'Statusabruf beim Heizen (Sek.)', idle: 'Statusabruf im Standby (Sek.)',
   finish: 'Schwelle „bald fertig" (Min.)',
   psEstimate: 'Aus kW-Wert schätzen', psMeter: 'Mit einem Gerät messen',
@@ -27,9 +30,12 @@ const T = DE ? {
   sSessions: 'Sitzungen', sTotal: 'Gesamte Heizzeit', sLast: 'Letzte Sitzung',
   yes: 'Ja', no: 'Nein', none: '–',
 } : {
-  title: 'HUUM Sauna', picker: 'Sauna',
+  title: 'HUUM UKU Sauna', picker: 'Sauna',
   info: 'Sauna', profiles: 'Profiles', advanced: 'Advanced',
-  power: 'Heater power (Energy estimate)', stats: 'Statistics',
+  power: 'Heater power (Energy estimate)', stats: 'Statistics', costs: 'Costs',
+  price: 'Electricity price per kWh',
+  priceHint: 'Leave at 0 to hide costs. Uses the linked power meter when set, otherwise the kW estimate above.',
+  sTotalKwh: 'Total energy', sTotalCost: 'Total cost',
   poll: 'Status refresh while heating (sec)', idle: 'Status refresh while idle (sec)',
   finish: '"Finishing soon" threshold (min)',
   psEstimate: 'Estimate from a kW value', psMeter: 'Measure with a device',
@@ -114,10 +120,13 @@ function applyStaticText() {
   set('l-ps-meter', T.psMeter);
   set('l-kw', T.kw);
   set('meter-hint', T.meterHint);
+  set('h-costs', T.costs);
+  set('l-price', T.price);
+  set('price-hint', T.priceHint);
   set('empty-text', T.empty);
   set('reset-profiles', T.resetProfiles);
-  for (const b of ['save-profiles', 'save-advanced', 'save-power']) set(b, T.save);
-  for (const s of ['saved-profiles', 'saved-advanced', 'saved-power']) set(s, T.saved);
+  for (const b of ['save-profiles', 'save-advanced', 'save-power', 'save-costs']) set(b, T.save);
+  for (const s of ['saved-profiles', 'saved-advanced', 'saved-power', 'saved-costs']) set(s, T.saved);
   const themeSel = $('theme');
   if (themeSel && themeSel.options.length === 3) {
     themeSel.options[0].textContent = T.themeAuto;
@@ -161,14 +170,27 @@ function renderInfo(s) {
 function renderStats(s) {
   const st = s.stats || {};
   const last = st.lastSession;
-  const lastText = last
-    ? `${new Date(last.startedAt).toLocaleString()} (${fmtDuration(last.durationMinutes)}), ${last.temperature ?? '?'}°C${last.humidity > 0 ? `, ${last.humidity}%` : ''}`
-    : T.none;
-  $('stats').innerHTML = rowsHtml([
+  let lastText = T.none;
+  if (last) {
+    const parts = [`${new Date(last.startedAt).toLocaleString()} (${fmtDuration(last.durationMinutes)})`,
+      `${last.temperature ?? '?'}°C`];
+    if (last.humidity > 0) parts.push(`${last.humidity}%`);
+    if (last.kwh > 0) parts.push(`${last.kwh} kWh`);
+    if (last.cost > 0) parts.push(String(last.cost));
+    lastText = parts.join(', ');
+  }
+  const rows = [
     [T.sSessions, st.sessionCount || 0],
     [T.sTotal, fmtDuration(st.totalHeatingMinutes || 0)],
-    [T.sLast, lastText],
-  ]);
+  ];
+  if (st.totalKwh > 0) rows.push([T.sTotalKwh, `${Math.round(st.totalKwh * 10) / 10} kWh`]);
+  if (st.totalCost > 0) rows.push([T.sTotalCost, String(Math.round(st.totalCost * 100) / 100)]);
+  rows.push([T.sLast, lastText]);
+  $('stats').innerHTML = rowsHtml(rows);
+}
+
+function renderCosts(cfg) {
+  $('electricityPrice').value = (cfg.costs && cfg.costs.electricityPrice) || 0;
 }
 
 function renderProfiles(cfg) {
@@ -255,6 +277,7 @@ async function selectSauna(id) {
   renderProfiles(cfg);
   renderAdvanced(cfg);
   renderPower(cfg);
+  renderCosts(cfg);
   await loadPowerMeters(cfg.power.meterId);
 }
 
@@ -356,6 +379,18 @@ function wire() {
       const cfg = await call('PUT', `/device/${encodeURIComponent(currentId)}/config`, { power });
       renderPower(cfg);
       flashSaved('saved-power');
+    } catch (err) { showFatal(err); }
+    btn.disabled = false;
+  });
+
+  $('save-costs').addEventListener('click', async () => {
+    const btn = $('save-costs');
+    btn.disabled = true;
+    const costs = { electricityPrice: Number($('electricityPrice').value) || 0 };
+    try {
+      const cfg = await call('PUT', `/device/${encodeURIComponent(currentId)}/config`, { costs });
+      renderCosts(cfg);
+      flashSaved('saved-costs');
     } catch (err) { showFatal(err); }
     btn.disabled = false;
   });

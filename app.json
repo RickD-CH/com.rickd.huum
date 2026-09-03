@@ -6,8 +6,8 @@
   "sdk": 3,
   "platforms": ["local"],
   "name": {
-    "en": "HUUM Sauna (Full Control)",
-    "de": "HUUM Sauna (Volle Kontrolle)"
+    "en": "HUUM UKU Sauna",
+    "de": "HUUM UKU Sauna"
   },
   "description": {
     "en": "Full sauna control — humidity, water alarm, timer and more — that the official app leaves out.",
@@ -150,6 +150,24 @@
               "de": "Luftfeuchtigkeit (%, 0 ohne Verdampfer)"
             },
             "example": 25
+          },
+          {
+            "name": "kwh",
+            "type": "number",
+            "title": {
+              "en": "Energy used (kWh)",
+              "de": "Verbrauch (kWh)"
+            },
+            "example": 8.4
+          },
+          {
+            "name": "cost",
+            "type": "number",
+            "title": {
+              "en": "Cost (0 if no price set)",
+              "de": "Kosten (0 ohne Preisangabe)"
+            },
+            "example": 2.9
           }
         ]
       }
@@ -298,8 +316,8 @@
     {
       "id": "uku",
       "name": {
-        "en": "HUUM UKU Sauna Heater",
-        "de": "HUUM UKU Saunaofen"
+        "en": "Sauna heater",
+        "de": "Saunaofen"
       },
       "class": "heater",
       "capabilities": [

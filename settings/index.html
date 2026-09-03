@@ -153,6 +153,17 @@
       </div>
     </div>
 
+    <h2 id="h-costs">Costs</h2>
+    <div class="card">
+      <label id="l-price">Electricity price per kWh</label>
+      <input type="number" id="electricityPrice" min="0" step="0.01" />
+      <div class="hint" id="price-hint">Leave at 0 to hide costs. Uses the linked power meter when set, otherwise the kW estimate above.</div>
+      <div class="btnrow">
+        <button id="save-costs" type="button">Save</button>
+        <span class="saved" id="saved-costs" hidden>Saved</span>
+      </div>
+    </div>
+
     <h2 id="h-stats">Statistics</h2>
     <div class="card" id="stats"></div>
   </div>

@@ -1,4 +1,4 @@
-# HUUM Sauna (Full Control) — Homey App
+# HUUM UKU Sauna — Homey App
 
 A custom [Homey](https://homey.app) app for HUUM sauna heaters with the UKU
 WiFi controller. Written because the **official** HUUM Homey app can't set
@@ -194,6 +194,11 @@ There is an **app settings page** (`settings/index.html`, reachable from
   and that is what the Energy tab uses. Linking a meter needs the
   `homey:manager:api` permission, which is why the app is `platforms:
   ["local"]` and shouldn't be submitted to the App Store as-is.
+- **Costs** — an electricity price per kWh. The app integrates power draw
+  (from the linked meter, or the kW estimate) over each session and records
+  the kWh and the cost; shown under *Statistics* and passed as `kwh` / `cost`
+  tokens on the *"A sauna session ended"* Flow trigger. Leave the price at 0
+  to hide costs.
 
 These settings are stored in the **device store**, not as Homey device
 settings (Homey requires settings to be declared in `app.json`; the store

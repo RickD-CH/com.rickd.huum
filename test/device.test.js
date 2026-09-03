@@ -307,6 +307,32 @@ async function testRemoteSafetyBlocksStartAndWarns() {
   console.log('OK: remote-safety lock blocks a start and surfaces a device warning');
 }
 
+async function testSessionEnergyAndCost() {
+  const device = makeDevice({ capabilities: { huum_session_count: 0, onoff: false } });
+  device.__store.electricityPrice = 0.30;
+  device.__store.heaterPowerKw = 6; // no meter -> estimate: 6 kW
+
+  // Session starts.
+  device._lastStatus = { isHeating: false };
+  await device._trackSessionStats({ isHeating: true, targetTemperature: 80, targetHumidity: 0 });
+
+  // Pretend one hour passed at 6 kW, then it stops.
+  device.__store.sessionEnergyAt -= 60 * 60 * 1000;
+  device._lastStatus = { isHeating: true };
+  await device._trackSessionStats({ isHeating: false });
+
+  const last = device.getStoreValue('lastSession');
+  assert.strictEqual(last.kwh, 6, '6 kW for 1 h -> 6 kWh');
+  assert.strictEqual(last.cost, 1.8, '6 kWh * 0.30 -> 1.80');
+  assert.strictEqual(device.getStoreValue('totalKwh'), 6);
+  assert.strictEqual(device.getStoreValue('totalCost'), 1.8);
+
+  const trigger = device.homey.__triggeredCards.find((t) => t.id === 'sauna_session_ended');
+  assert.strictEqual(trigger.tokens.kwh, 6);
+  assert.strictEqual(trigger.tokens.cost, 1.8);
+  console.log('OK: a session records kWh (from the estimate) and a cost from the electricity price');
+}
+
 async function testWaterAlarmIgnoresZeroSteamerError() {
   const device = makeDevice({ capabilities: { alarm_water: false, alarm_generic: false } });
   await device._syncSafetyAlarms({ steamerError: 0, isEmergencyStop: false });
@@ -345,6 +371,7 @@ async function testWaterCheckReminderFiresOnStart() {
   await testWaterSensorAbsentHidesAlarm();
   await testDoorSensorAbsentOverridesSafetyCheck();
   await testRemoteSafetyBlocksStartAndWarns();
+  await testSessionEnergyAndCost();
   await testWaterAlarmIgnoresZeroSteamerError();
   await testWaterCheckReminderFiresOnStart();
   console.log('\nAll device.js exception-handling tests passed.');

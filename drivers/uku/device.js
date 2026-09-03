@@ -151,13 +151,24 @@ class HuumDevice extends Homey.Device {
         meterId: this._cfg('powerMeterId', null),
         heaterPowerKw: this._cfg('heaterPowerKw', DEFAULT_HEATER_POWER_KW),
       },
+      costs: {
+        electricityPrice: this._cfg('electricityPrice', 0),
+      },
+      stats: {
+        sessionCount: this.getStoreValue('sessionCount') || 0,
+        totalHeatingMinutes: this.getStoreValue('totalHeatingMinutes') || 0,
+        totalKwh: this.getStoreValue('totalKwh') || 0,
+        totalCost: this.getStoreValue('totalCost') || 0,
+        lastSession: this.getStoreValue('lastSession') || null,
+      },
       hasSteamer: this.hasCapability('target_humidity'),
+      hasMeter: this._usingPowerMeter(),
     };
   }
 
   /** Called by api.js when the app settings page saves. */
   async setConfig({
-    profiles, advanced, power, resetProfiles,
+    profiles, advanced, power, costs, resetProfiles,
   } = {}) {
     const patch = {};
     if (resetProfiles) {
@@ -188,6 +199,9 @@ class HuumDevice extends Homey.Device {
       if (power.heaterPowerKw != null && !Number.isNaN(Number(power.heaterPowerKw))) {
         patch.heaterPowerKw = Number(power.heaterPowerKw);
       }
+    }
+    if (costs && costs.electricityPrice != null && !Number.isNaN(Number(costs.electricityPrice))) {
+      patch.electricityPrice = Math.max(0, Number(costs.electricityPrice));
     }
 
     await this._setCfg(patch);
@@ -607,6 +621,7 @@ class HuumDevice extends Homey.Device {
    */
   async _trackSessionStats(status) {
     await this._setCapabilitySafe('huum_session_count', this.getStoreValue('sessionCount') || 0);
+    await this._accrueSessionEnergy();
 
     const wasHeating = this._lastStatus ? this._lastStatus.isHeating : undefined;
     const isHeating = status.isHeating;
@@ -635,31 +650,74 @@ class HuumDevice extends Homey.Device {
       'sessionStartHumidityPercent',
       typeof status.targetHumidity === 'number' ? status.targetHumidity : 0,
     );
+    await this.setStoreValue('sessionWh', 0);
+    await this.setStoreValue('sessionEnergyAt', Date.now());
+  }
+
+  /** Best guess at the heater's current draw in watts. */
+  _currentPowerW() {
+    if (this.hasCapability('measure_power')) {
+      const p = this.getCapabilityValue('measure_power');
+      if (typeof p === 'number' && p > 0) return p;
+    }
+    return (Number(this._cfg('heaterPowerKw', DEFAULT_HEATER_POWER_KW)) || DEFAULT_HEATER_POWER_KW) * 1000;
+  }
+
+  /**
+   * Integrate power draw over the current session (poll to poll), so the app
+   * can show kWh and a cost per session even though the HUUM API never
+   * reports energy. Uses the linked power meter's live reading when there is
+   * one, otherwise the entered heater-power estimate.
+   */
+  async _accrueSessionEnergy() {
+    if (!this.getStoreValue('sessionStartedAt')) return;
+    const at = this.getStoreValue('sessionEnergyAt') || Date.now();
+    const now = Date.now();
+    const hours = (now - at) / 3600000;
+    const wasHeating = this._lastStatus ? this._lastStatus.isHeating : true;
+    if (wasHeating && hours > 0 && hours < 12) {
+      const wh = (this.getStoreValue('sessionWh') || 0) + this._currentPowerW() * hours;
+      await this.setStoreValue('sessionWh', wh);
+    }
+    await this.setStoreValue('sessionEnergyAt', now);
   }
 
   async _endSessionTracking() {
     const startedAt = this.getStoreValue('sessionStartedAt');
     if (!startedAt) return; // App restarted mid-session — no reliable start time to measure from.
 
+    await this._accrueSessionEnergy(); // credit the final poll-to-stop interval
+
     const endedAt = Date.now();
     const durationMinutes = Math.max(0, Math.round((endedAt - startedAt) / 60000));
     const temperature = this.getStoreValue('sessionStartTemperature') ?? null;
     const humidity = this.getStoreValue('sessionStartHumidityPercent') || 0;
+
+    const round2 = (n) => Math.round(n * 100) / 100;
+    const kwh = round2((this.getStoreValue('sessionWh') || 0) / 1000);
+    const price = Number(this._cfg('electricityPrice', 0)) || 0;
+    const cost = price > 0 ? round2(kwh * price) : 0;
 
     const sessionCount = (this.getStoreValue('sessionCount') || 0) + 1;
     const totalHeatingMinutes = (this.getStoreValue('totalHeatingMinutes') || 0) + durationMinutes;
 
     await this.setStoreValue('sessionCount', sessionCount);
     await this.setStoreValue('totalHeatingMinutes', totalHeatingMinutes);
+    await this.setStoreValue('totalKwh', round2((this.getStoreValue('totalKwh') || 0) + kwh));
+    await this.setStoreValue('totalCost', round2((this.getStoreValue('totalCost') || 0) + cost));
     await this.setStoreValue('lastSession', {
-      startedAt, endedAt, durationMinutes, temperature, humidity,
+      startedAt, endedAt, durationMinutes, temperature, humidity, kwh, cost,
     });
     await this.setStoreValue('sessionStartedAt', null);
+    await this.setStoreValue('sessionWh', 0);
+    await this.setStoreValue('sessionEnergyAt', null);
 
     await this._setCapabilitySafe('huum_session_count', sessionCount);
 
     this.homey.flow.getDeviceTriggerCard('sauna_session_ended')
-      .trigger(this, { duration: durationMinutes, temperature: temperature || 0, humidity })
+      .trigger(this, {
+        duration: durationMinutes, temperature: temperature || 0, humidity, kwh, cost,
+      })
       .catch((err) => this.error('Failed to trigger sauna_session_ended:', err.message));
   }
 
@@ -677,7 +735,10 @@ class HuumDevice extends Homey.Device {
     const durationStr = this._formatDuration(lastSession.durationMinutes);
     const humidityStr = lastSession.humidity > 0 ? `, ${lastSession.humidity}%` : '';
     const temperatureStr = typeof lastSession.temperature === 'number' ? `${lastSession.temperature}°C` : '?';
-    return `${dateStr} (${durationStr}), ${temperatureStr}${humidityStr}`;
+    const energyStr = lastSession.kwh > 0
+      ? `, ${lastSession.kwh} kWh${lastSession.cost > 0 ? ` (${lastSession.cost})` : ''}`
+      : '';
+    return `${dateStr} (${durationStr}), ${temperatureStr}${humidityStr}${energyStr}`;
   }
 
   /** Used by the "start_with_profile" Flow action card and the app page. */
@@ -794,6 +855,8 @@ class HuumDevice extends Homey.Device {
       stats: {
         sessionCount: this.getStoreValue('sessionCount') || 0,
         totalHeatingMinutes: this.getStoreValue('totalHeatingMinutes') || 0,
+        totalKwh: this.getStoreValue('totalKwh') || 0,
+        totalCost: this.getStoreValue('totalCost') || 0,
         lastSession: this.getStoreValue('lastSession') || null,
       },
       config: this.getConfig(),
