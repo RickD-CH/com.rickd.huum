@@ -307,27 +307,6 @@ async function testRemoteSafetyBlocksStartAndWarns() {
   console.log('OK: remote-safety lock blocks a start and surfaces a device warning');
 }
 
-async function testThermostatModeProxiesOnoff() {
-  const device = makeDevice({
-    capabilities: {
-      onoff: false, thermostat_mode: 'off', target_temperature: 80,
-    },
-  });
-  let turnedOn = null;
-  device.api = {
-    turnOn: async (args) => { turnedOn = args; return {}; },
-    turnOff: async () => ({}),
-    getStatus: async () => { throw new Error('no refresh in test'); },
-  };
-  device._registerCapabilityListeners();
-
-  await device.triggerCapabilityListener('thermostat_mode', 'heat');
-  assert.ok(turnedOn, 'setting thermostat_mode=heat starts the sauna');
-  assert.strictEqual(device.getCapabilityValue('onoff'), true, 'onoff kept in sync');
-  assert.strictEqual(device.getCapabilityValue('thermostat_mode'), 'heat');
-  console.log('OK: the thermostat_mode tile proxies onoff (so the sauna reads "Off" when idle)');
-}
-
 async function testWaterAlarmIgnoresZeroSteamerError() {
   const device = makeDevice({ capabilities: { alarm_water: false, alarm_generic: false } });
   await device._syncSafetyAlarms({ steamerError: 0, isEmergencyStop: false });
@@ -366,7 +345,6 @@ async function testWaterCheckReminderFiresOnStart() {
   await testWaterSensorAbsentHidesAlarm();
   await testDoorSensorAbsentOverridesSafetyCheck();
   await testRemoteSafetyBlocksStartAndWarns();
-  await testThermostatModeProxiesOnoff();
   await testWaterAlarmIgnoresZeroSteamerError();
   await testWaterCheckReminderFiresOnStart();
   console.log('\nAll device.js exception-handling tests passed.');

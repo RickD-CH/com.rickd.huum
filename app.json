@@ -301,10 +301,9 @@
         "en": "HUUM UKU Sauna Heater",
         "de": "HUUM UKU Saunaofen"
       },
-      "class": "thermostat",
+      "class": "heater",
       "capabilities": [
         "onoff",
-        "thermostat_mode",
         "target_temperature",
         "measure_temperature",
         "target_humidity",
@@ -317,19 +316,6 @@
         "alarm_generic"
       ],
       "capabilitiesOptions": {
-        "onoff": {
-          "uiComponent": null
-        },
-        "thermostat_mode": {
-          "title": {
-            "en": "Sauna",
-            "de": "Sauna"
-          },
-          "values": [
-            { "id": "off", "title": { "en": "Off", "de": "Aus" } },
-            { "id": "heat", "title": { "en": "Heating", "de": "Heizen" } }
-          ]
-        },
         "target_temperature": {
           "min": 40,
           "max": 110,

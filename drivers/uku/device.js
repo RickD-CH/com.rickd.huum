@@ -34,7 +34,6 @@ class HuumDevice extends Homey.Device {
     this._powerMeterInstance = null;
 
     await this._migrateLegacySettings();
-    this._upgradeCapabilities();
 
     // Detect which hardware modules (steamer/light) this UKU actually has
     // *before* registering capability listeners, so e.g. target_humidity
@@ -108,23 +107,6 @@ class HuumDevice extends Homey.Device {
     }
   }
 
-  /**
-   * Capabilities that later versions added to list_devices but that a
-   * device paired by an older version is still missing. Deferred out of the
-   * onInit tick — calling addCapability() synchronously from onInit can make
-   * the device re-initialise in a loop.
-   */
-  _upgradeCapabilities() {
-    const missing = ['thermostat_mode'].filter((id) => !this.hasCapability(id));
-    if (!missing.length) return;
-    this.homey.setTimeout(async () => {
-      for (const id of missing) {
-        // eslint-disable-next-line no-await-in-loop
-        await this.addCapability(id).catch((err) => this.error(`Failed to add ${id}:`, err.message));
-      }
-    }, 4000);
-  }
-
   async onSettings({ changedKeys }) {
     // The only editable device settings left here are the Sensors/hardware
     // group and the water-alarm notification toggle. A sensor-presence
@@ -174,8 +156,13 @@ class HuumDevice extends Homey.Device {
   }
 
   /** Called by api.js when the app settings page saves. */
-  async setConfig({ profiles, advanced, power } = {}) {
+  async setConfig({
+    profiles, advanced, power, resetProfiles,
+  } = {}) {
     const patch = {};
+    if (resetProfiles) {
+      Object.assign(patch, DEFAULT_PROFILES);
+    }
     if (Array.isArray(profiles)) {
       profiles.forEach((p, i) => {
         const n = i + 1;
@@ -318,13 +305,6 @@ class HuumDevice extends Homey.Device {
   _registerCapabilityListeners() {
     this.registerCapabilityListener('onoff', (value) => this._setPower(value));
 
-    // The thermostat tile shows this instead of a bare on/off toggle, so the
-    // sauna reads as "Off" rather than "Heating to 80°" while it's idle. It
-    // just proxies onoff.
-    if (this.hasCapability('thermostat_mode')) {
-      this.registerCapabilityListener('thermostat_mode', (mode) => this._setPower(mode === 'heat'));
-    }
-
     this.registerCapabilityListener('target_temperature', async (value) => {
       // The HUUM API has no separate "set temperature while off" endpoint;
       // it only accepts a temperature as part of /start. If the heater is
@@ -364,7 +344,7 @@ class HuumDevice extends Homey.Device {
     }
   }
 
-  /** Turn the sauna on/off (shared by the onoff and thermostat_mode tiles). */
+  /** Turn the sauna on/off (the onoff capability listener). */
   async _setPower(on) {
     const wasOn = !!this.getCapabilityValue('onoff');
     if (on) {
@@ -374,10 +354,9 @@ class HuumDevice extends Homey.Device {
     } else {
       await this._withAuthHandling(this.api.turnOff());
     }
-    // Keep the other tile in sync immediately; the status refresh below
-    // corrects both from the API. A refresh hiccup must not fail the action.
+    // The command above already succeeded; a follow-up status-refresh hiccup
+    // must not make the action look like it failed.
     await this._setCapabilitySafe('onoff', on);
-    await this._setCapabilitySafe('thermostat_mode', on ? 'heat' : 'off');
     await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
   }
 
@@ -511,6 +490,8 @@ class HuumDevice extends Homey.Device {
       ['onoff.light', hasLight],
       ['alarm_contact', doorSensor],
       ['measure_power', this._usingPowerMeter()],
+      // Retired: drop it from devices paired by the version that briefly had it.
+      ['thermostat_mode', false],
     ]);
 
     for (const [capabilityId, shouldHave] of wanted) {
@@ -529,7 +510,6 @@ class HuumDevice extends Homey.Device {
 
   async _applyStatus(status) {
     await this._setCapabilitySafe('onoff', status.isHeating);
-    await this._setCapabilitySafe('thermostat_mode', status.isHeating ? 'heat' : 'off');
     await this._setCapabilitySafe('measure_temperature', status.temperature);
     await this._setCapabilitySafe('target_temperature', status.targetTemperature);
     await this._setCapabilitySafe('measure_humidity', status.humidity);

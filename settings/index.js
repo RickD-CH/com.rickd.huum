@@ -14,6 +14,8 @@ const T = DE ? {
   meterNone: 'Kein Messgerät gefunden.',
   meterNoPerm: 'Geräteliste nicht verfügbar (fehlende Berechtigung). Nutze die kW-Schätzung.',
   save: 'Speichern', saved: 'Gespeichert', loading: 'Lädt…',
+  resetProfiles: 'Auf Standard zurücksetzen',
+  themeAuto: 'Automatisch', themeLight: 'Hell', themeDark: 'Dunkel',
   empty: 'Noch keine Sauna gekoppelt. Füge zuerst eine unter „Geräte" hinzu.',
   name: 'Name', temp: 'Temperatur (°C)', hum: 'Feuchte (%)',
   fStatus: 'Status', fHeating: 'Heizt', fCurTemp: 'Aktuelle Temperatur',
@@ -36,6 +38,8 @@ const T = DE ? {
   meterNone: 'No power-measuring device found.',
   meterNoPerm: 'Device list unavailable (missing permission). Use the kW estimate.',
   save: 'Save', saved: 'Saved', loading: 'Loading…',
+  resetProfiles: 'Reset to defaults',
+  themeAuto: 'Automatic', themeLight: 'Light', themeDark: 'Dark',
   empty: 'No sauna paired yet. Add one from Devices first.',
   name: 'Name', temp: 'Temperature (°C)', hum: 'Humidity (%)',
   fStatus: 'Status', fHeating: 'Heating', fCurTemp: 'Current temperature',
@@ -48,10 +52,19 @@ const T = DE ? {
   yes: 'Yes', no: 'No', none: '–',
 };
 
+let Homey = null;
 let homeyApi = null;
 let saunas = [];
 let currentId = null;
 let refreshTimer = null;
+
+function applyTheme(value) {
+  const v = value === 'light' || value === 'dark' ? value : 'auto';
+  if (v === 'auto') document.documentElement.removeAttribute('data-theme');
+  else document.documentElement.setAttribute('data-theme', v);
+  const sel = $('theme');
+  if (sel) sel.value = v;
+}
 
 const $ = (id) => document.getElementById(id);
 
@@ -102,8 +115,15 @@ function applyStaticText() {
   set('l-kw', T.kw);
   set('meter-hint', T.meterHint);
   set('empty-text', T.empty);
+  set('reset-profiles', T.resetProfiles);
   for (const b of ['save-profiles', 'save-advanced', 'save-power']) set(b, T.save);
   for (const s of ['saved-profiles', 'saved-advanced', 'saved-power']) set(s, T.saved);
+  const themeSel = $('theme');
+  if (themeSel && themeSel.options.length === 3) {
+    themeSel.options[0].textContent = T.themeAuto;
+    themeSel.options[1].textContent = T.themeLight;
+    themeSel.options[2].textContent = T.themeDark;
+  }
 }
 
 function fmtDuration(min) {
@@ -274,6 +294,22 @@ function wire() {
   $('ps-estimate').addEventListener('change', updatePowerBoxes);
   $('ps-meter').addEventListener('change', updatePowerBoxes);
 
+  $('theme').addEventListener('change', (e) => {
+    applyTheme(e.target.value);
+    try { Homey.set('uiTheme', e.target.value, () => {}); } catch (err) { /* ignore */ }
+  });
+
+  $('reset-profiles').addEventListener('click', async () => {
+    const btn = $('reset-profiles');
+    btn.disabled = true;
+    try {
+      const cfg = await call('PUT', `/device/${encodeURIComponent(currentId)}/config`, { resetProfiles: true });
+      renderProfiles(cfg);
+      flashSaved('saved-profiles');
+    } catch (err) { showFatal(err); }
+    btn.disabled = false;
+  });
+
   $('save-profiles').addEventListener('click', async () => {
     const btn = $('save-profiles');
     btn.disabled = true;
@@ -325,7 +361,8 @@ function wire() {
   });
 }
 
-function onHomeyReady(Homey) {
+function onHomeyReady(homey) {
+  Homey = homey;
   // Tell Homey the page is up FIRST, so the container never spins forever.
   try { Homey.ready(); } catch (e) { /* ignore */ }
 
@@ -337,6 +374,10 @@ function onHomeyReady(Homey) {
     showFatal(e);
     return;
   }
+
+  try {
+    Homey.get('uiTheme', (err, val) => applyTheme(err ? 'auto' : val));
+  } catch (e) { /* ignore */ }
 
   refresh()
     .then(() => (saunas.length ? selectSauna(saunas[0].id) : null))
