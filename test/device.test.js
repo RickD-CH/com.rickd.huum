@@ -307,6 +307,47 @@ async function testRemoteSafetyBlocksStartAndWarns() {
   console.log('OK: remote-safety lock blocks a start and surfaces a device warning');
 }
 
+async function testRemoteStateTriggersOnEdge() {
+  const device = makeDevice({ capabilities: {} });
+
+  // First observation just primes the edge detector.
+  await device._syncRemoteState({ remoteSafetyState: 'safe' });
+  assert.strictEqual(device.homey.__triggeredCards.length, 0);
+
+  await device._syncRemoteState({ remoteSafetyState: 'notSafe' });
+  assert.strictEqual(device.homey.__triggeredCards.pop().id, 'remote_control_blocked');
+
+  await device._syncRemoteState({ remoteSafetyState: 'notSafe' }); // no change
+  assert.strictEqual(device.homey.__triggeredCards.length, 0);
+
+  await device._syncRemoteState({ remoteSafetyState: 'safe' });
+  assert.strictEqual(device.homey.__triggeredCards.pop().id, 'remote_control_available');
+  console.log('OK: remote_control_blocked / _available fire only on the state edge');
+}
+
+async function testDutyCycleLowersTheEstimateAtTemp() {
+  const device = makeDevice({
+    capabilities: { measure_temperature: 88, target_temperature: 90 },
+  });
+  device.__store.heaterPowerKw = 6;
+  device.__store.heaterDutyCycle = 50;
+
+  // measure (88) >= target (90) - 5 -> "at temperature" -> duty applies
+  assert.strictEqual(device._currentPowerW(), 3000, 'at temp: 6 kW * 50%');
+
+  device.__capabilities.set('measure_temperature', 40); // heating up
+  assert.strictEqual(device._currentPowerW(), 6000, 'heating up: full power');
+  console.log('OK: the kW estimate is duty-cycled once the sauna is at temperature');
+}
+
+async function testSetMeasuredPowerFeedsCapability() {
+  const device = makeDevice({ capabilities: { measure_power: null } });
+  device.__store.powerSource = 'flow';
+  await device.setMeasuredPower(4200);
+  assert.strictEqual(device.getCapabilityValue('measure_power'), 4200);
+  console.log('OK: the set_measured_power Flow action writes measure_power');
+}
+
 async function testProfileDefaultsSeededOverNull() {
   // Regression: real Homey getStoreValue() returns null for unset keys, and
   // _migrateLegacySettings used a `=== undefined` check, so the 3 default
@@ -388,6 +429,9 @@ async function testWaterCheckReminderFiresOnStart() {
   await testWaterSensorAbsentHidesAlarm();
   await testDoorSensorAbsentOverridesSafetyCheck();
   await testRemoteSafetyBlocksStartAndWarns();
+  await testRemoteStateTriggersOnEdge();
+  await testDutyCycleLowersTheEstimateAtTemp();
+  await testSetMeasuredPowerFeedsCapability();
   await testProfileDefaultsSeededOverNull();
   await testSessionEnergyAndCost();
   await testWaterAlarmIgnoresZeroSteamerError();

@@ -21,6 +21,14 @@ class HuumApp extends Homey.App {
         return typeof remaining === 'number' && remaining < args.minutes;
       });
 
+    this.homey.flow.getConditionCard('remote_control_is_blocked')
+      .registerRunListener(async (args) => args.device.isRemoteBlocked());
+
+    this.homey.flow.getActionCard('set_measured_power')
+      .registerRunListener(async (args) => {
+        await args.device.setMeasuredPower(args.watts);
+      });
+
     this.homey.flow.getActionCard('start_with_profile')
       .registerRunListener(async (args) => {
         await args.device.startWithProfile(args.profile);

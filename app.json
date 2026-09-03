@@ -86,6 +86,30 @@
   "flow": {
     "triggers": [
       {
+        "id": "remote_control_blocked",
+        "title": {
+          "en": "Remote start became blocked",
+          "de": "Fernstart wurde blockiert"
+        },
+        "hint": {
+          "en": "The UKU now requires someone to confirm safety on the physical panel before it will accept a remote start.",
+          "de": "Die UKU verlangt jetzt, dass jemand die Sicherheit am Bedienfeld bestätigt, bevor ein Fernstart akzeptiert wird."
+        },
+        "args": [
+          { "type": "device", "name": "device", "filter": "driver_id=uku" }
+        ]
+      },
+      {
+        "id": "remote_control_available",
+        "title": {
+          "en": "Remote start became available",
+          "de": "Fernstart wurde wieder möglich"
+        },
+        "args": [
+          { "type": "device", "name": "device", "filter": "driver_id=uku" }
+        ]
+      },
+      {
         "id": "huum_finishing_soon",
         "title": {
           "en": "The sauna will be done heating soon",
@@ -201,9 +225,45 @@
             "value": 10
           }
         ]
+      },
+      {
+        "id": "remote_control_is_blocked",
+        "title": {
+          "en": "Remote start !{{is|is not}} blocked",
+          "de": "Fernstart !{{ist|ist nicht}} blockiert"
+        },
+        "args": [
+          { "type": "device", "name": "device", "filter": "driver_id=uku" }
+        ]
       }
     ],
     "actions": [
+      {
+        "id": "set_measured_power",
+        "title": {
+          "en": "Set the sauna's measured power",
+          "de": "Gemessene Sauna-Leistung setzen"
+        },
+        "titleFormatted": {
+          "en": "Set the sauna's measured power to [[watts]] W",
+          "de": "Gemessene Sauna-Leistung auf [[watts]] W setzen"
+        },
+        "hint": {
+          "en": "Feeds a power reading (e.g. from your own energy meter) into this device for the Energy tab and the per-session cost. Set the heater power source to \"From a Flow\" in the app settings first.",
+          "de": "Speist einen Leistungswert (z. B. von deinem eigenen Stromzähler) in dieses Gerät ein — für den Energie-Tab und die Kosten pro Sitzung. Stelle in den App-Einstellungen zuerst die Leistungsquelle auf \"Aus einem Flow\"."
+        },
+        "args": [
+          { "type": "device", "name": "device", "filter": "driver_id=uku" },
+          {
+            "type": "number",
+            "name": "watts",
+            "title": { "en": "Watts", "de": "Watt" },
+            "min": 0,
+            "max": 30000,
+            "step": 1
+          }
+        ]
+      },
       {
         "id": "start_with_temperature_and_humidity",
         "title": {

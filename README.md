@@ -194,11 +194,20 @@ There is an **app settings page** (`settings/index.html`, reachable from
   and that is what the Energy tab uses. Linking a meter needs the
   `homey:manager:api` permission, which is why the app is `platforms:
   ["local"]` and shouldn't be submitted to the App Store as-is.
-- **Costs** — an electricity price per kWh. The app integrates power draw
-  (from the linked meter, or the kW estimate) over each session and records
-  the kWh and the cost; shown under *Statistics* and passed as `kwh` / `cost`
-  tokens on the *"A sauna session ended"* Flow trigger. Leave the price at 0
-  to hide costs.
+  The heater-power source can be **kW estimate**, a **linked meter**, or a
+  value **fed by a Flow** (`set_measured_power` action — the store-safe path
+  that needs no permission). The kW estimate is full power while heating up,
+  then duty-cycled (default 60 %, configurable) to hold the target — a
+  sauna heater cycles its element.
+- **Costs** — an electricity price per kWh (independent of Homey's own
+  Energy-tab price). The app integrates power draw over each session and
+  records the kWh and cost; shown under *Statistics* and passed as `kwh` /
+  `cost` tokens on the *"A sauna session ended"* Flow trigger. 0 hides costs.
+- **Remote-start state** — the UKU can require someone to confirm safety on
+  the physical panel before it accepts a remote start (`remoteSafetyState`).
+  Flow trigger *"Remote start became blocked / available"* and a condition
+  *"Remote start is / is not blocked"*, plus the read-only *"Fernstart
+  blockiert"* and *"Max. Heizdauer"* rows on the app settings page.
 
 These settings are stored in the **device store**, not as Homey device
 settings (Homey requires settings to be declared in `app.json`; the store

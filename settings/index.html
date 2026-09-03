@@ -137,6 +137,9 @@
         <div id="estimate-box">
           <label id="l-kw">Heater power (kW)</label>
           <input type="number" id="heaterPowerKw" min="1" max="15" step="0.5" />
+          <label id="l-duty">Duty cycle at temperature (%)</label>
+          <input type="number" id="heaterDutyCycle" min="1" max="100" step="5" />
+          <div class="hint" id="duty-hint">Full power while heating up, then this share to hold the target — a sauna heater cycles its element.</div>
         </div>
         <div class="radio">
           <input type="radio" name="powerSource" id="ps-meter" value="meter" />
@@ -146,6 +149,13 @@
           <select id="powerMeterId"></select>
           <div class="hint" id="meter-hint">Pick a device that reports power (e.g. your Shelly).</div>
           <div class="err" id="meter-err" hidden></div>
+        </div>
+        <div class="radio">
+          <input type="radio" name="powerSource" id="ps-flow" value="flow" />
+          <label for="ps-flow" id="l-ps-flow">From a Flow</label>
+        </div>
+        <div id="flow-box">
+          <div class="hint" id="flow-hint">Build a Flow that runs the "Set the sauna's measured power" action from your own energy meter.</div>
         </div>
         <div class="btnrow">
           <button id="save-power" type="button" class="action">Save</button>
@@ -157,7 +167,7 @@
       <div class="card">
         <label id="l-price">Electricity price per kWh</label>
         <input type="number" id="electricityPrice" min="0" step="0.01" />
-        <div class="hint" id="price-hint">Leave at 0 to hide costs.</div>
+        <div class="hint" id="price-hint">Leave at 0 to hide costs. Independent of the price in Homey's Energy tab.</div>
         <div class="btnrow">
           <button id="save-costs" type="button" class="action">Save</button>
           <span class="saved" id="saved-costs" hidden>Saved</span>
@@ -190,7 +200,11 @@
       poll: 'Statusabruf beim Heizen (Sek.)', idle: 'Statusabruf im Standby (Sek.)',
       finish: 'Schwelle "bald fertig" (Min.)',
       hPower: 'Ofenleistung', hCosts: 'Kosten',
-      psEstimate: 'Aus kW-Wert schätzen', psMeter: 'Mit einem Gerät messen',
+      psEstimate: 'Aus kW-Wert schätzen', psMeter: 'Mit einem Gerät messen', psFlow: 'Aus einem Flow',
+      duty: 'Auslastung bei Zieltemperatur (%)',
+      dutyHint: 'Volle Leistung beim Aufheizen, danach dieser Anteil zum Halten — ein Saunaofen taktet das Heizelement.',
+      flowHint: 'Baue einen Flow, der die Aktion „Gemessene Sauna-Leistung setzen" mit deinem eigenen Stromzähler ausführt.',
+      fMaxHeat: 'Max. Heizdauer', fRemoteBlocked: 'Fernstart blockiert',
       kw: 'Ofenleistung (kW)', price: 'Strompreis pro kWh',
       priceHint: '0 lassen, um Kosten auszublenden. Nutzt das verknüpfte Messgerät, sonst die kW-Schätzung.',
       meterHint: 'Wähle ein Gerät, das Leistung meldet (z. B. deinen Shelly). Seine Live-Watt werden auf die Sauna gespiegelt.',
@@ -217,7 +231,11 @@
       poll: 'Status refresh while heating (sec)', idle: 'Status refresh while idle (sec)',
       finish: '"Finishing soon" threshold (min)',
       hPower: 'Heater power', hCosts: 'Costs',
-      psEstimate: 'Estimate from a kW value', psMeter: 'Measure with a device',
+      psEstimate: 'Estimate from a kW value', psMeter: 'Measure with a device', psFlow: 'From a Flow',
+      duty: 'Duty cycle at temperature (%)',
+      dutyHint: 'Full power while heating up, then this share to hold the target — a sauna heater cycles its element.',
+      flowHint: 'Build a Flow that runs the "Set the sauna\'s measured power" action from your own energy meter.',
+      fMaxHeat: 'Max heating time', fRemoteBlocked: 'Remote start blocked',
       kw: 'Heater power (kW)', price: 'Electricity price per kWh',
       priceHint: 'Leave at 0 to hide costs. Uses the linked power meter when set, otherwise the kW estimate.',
       meterHint: 'Pick a device that reports power (e.g. your Shelly). Its live wattage is mirrored onto the sauna.',
@@ -321,8 +339,9 @@
       setTxt('h-info', T.info); setTxt('h-stats', T.stats);
       setTxt('l-poll', T.poll); setTxt('l-idle', T.idle); setTxt('l-finish', T.finish);
       setTxt('h-power', T.hPower); setTxt('h-costs', T.hCosts);
-      setTxt('l-ps-estimate', T.psEstimate); setTxt('l-ps-meter', T.psMeter);
+      setTxt('l-ps-estimate', T.psEstimate); setTxt('l-ps-meter', T.psMeter); setTxt('l-ps-flow', T.psFlow);
       setTxt('l-kw', T.kw); setTxt('l-price', T.price); setTxt('price-hint', T.priceHint);
+      setTxt('l-duty', T.duty); setTxt('duty-hint', T.dutyHint); setTxt('flow-hint', T.flowHint);
       setTxt('meter-hint', T.meterHint);
       setTxt('s-about', T.about); setTxt('btn-donate', T.donate); setTxt('btn-github', T.github);
       setTxt('empty-text', T.empty); setTxt('reset-profiles', T.resetProfiles);
@@ -349,8 +368,10 @@
         [T.fLight, i.lightInstalled || T.none],
         [T.fChildLock, i.childLock || T.none],
         [T.fRemote, i.remoteSafetyState || T.none],
+        [T.fRemoteBlocked, i.remoteBlocked || T.none],
         [T.fPayment, i.paymentEndDate || T.none],
         [T.fLimits, i.deviceLimits || T.none],
+        [T.fMaxHeat, i.maxHeatingTime || T.none],
       ]);
     }
 
@@ -391,12 +412,13 @@
     }
 
     function renderPower(cfg) {
-      var meter = cfg.power.source === 'meter';
-      $('ps-estimate').checked = !meter;
-      $('ps-meter').checked = meter;
+      var src = cfg.power.source;
+      $('ps-estimate').checked = src === 'estimate' || !src;
+      $('ps-meter').checked = src === 'meter';
+      $('ps-flow').checked = src === 'flow';
       $('heaterPowerKw').value = cfg.power.heaterPowerKw;
-      $('estimate-box').hidden = meter;
-      $('meter-box').hidden = !meter;
+      $('heaterDutyCycle').value = cfg.power.dutyCycle == null ? 60 : cfg.power.dutyCycle;
+      powerBoxes();
     }
 
     function renderCosts(cfg) {
@@ -404,9 +426,9 @@
     }
 
     function powerBoxes() {
-      var meter = $('ps-meter').checked;
-      $('estimate-box').hidden = meter;
-      $('meter-box').hidden = !meter;
+      $('estimate-box').hidden = !$('ps-estimate').checked;
+      $('meter-box').hidden = !$('ps-meter').checked;
+      $('flow-box').hidden = !$('ps-flow').checked;
     }
 
     function loadMeters(selectedId) {
@@ -479,6 +501,7 @@
       $('picker').addEventListener('change', function (e) { selectSauna(e.target.value).catch(showFatal); });
       $('ps-estimate').addEventListener('change', powerBoxes);
       $('ps-meter').addEventListener('change', powerBoxes);
+      $('ps-flow').addEventListener('change', powerBoxes);
 
       $('reset-profiles').addEventListener('click', function () {
         saveConfig({ resetProfiles: true }, 'saved-profiles', renderProfiles);
@@ -502,10 +525,12 @@
         } }, 'saved-advanced', null);
       });
       $('save-power').addEventListener('click', function () {
+        var source = $('ps-meter').checked ? 'meter' : ($('ps-flow').checked ? 'flow' : 'estimate');
         saveConfig({ power: {
-          source: $('ps-meter').checked ? 'meter' : 'estimate',
-          meterId: $('ps-meter').checked ? ($('powerMeterId').value || null) : null,
+          source: source,
+          meterId: source === 'meter' ? ($('powerMeterId').value || null) : null,
           heaterPowerKw: Number($('heaterPowerKw').value),
+          dutyCycle: Number($('heaterDutyCycle').value) || 60,
         } }, 'saved-power', renderPower);
       });
       $('save-costs').addEventListener('click', function () {

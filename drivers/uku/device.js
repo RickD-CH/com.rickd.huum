@@ -9,6 +9,12 @@ const DEFAULT_POLL_INTERVAL_S = 30;
 const DEFAULT_IDLE_POLL_INTERVAL_S = 300;
 const DEFAULT_FINISHING_SOON_MINUTES = 10;
 const DEFAULT_HEATER_POWER_KW = 6;
+// A sauna heater runs at full power heating up, then cycles its element to
+// hold the target — so a flat "kW × hours" over-estimates. Applied to the
+// kW estimate once the room is within HEATUP_MARGIN of target. Ignored when
+// a real power meter / Flow feeds measure_power.
+const DEFAULT_DUTY_CYCLE = 60;
+const HEATUP_MARGIN_C = 5;
 
 // Seeded on first run / on "reset to defaults". Humidity is ignored on
 // saunas without a steamer. The "Feucht" preset sits at the steamer's max
@@ -168,9 +174,10 @@ class HuumDevice extends Homey.Device {
         finishingSoonThresholdMinutes: this._cfg('finishingSoonThresholdMinutes', DEFAULT_FINISHING_SOON_MINUTES),
       },
       power: {
-        source: this._cfg('powerSource', 'estimate'),
+        source: this._powerSource(),
         meterId: this._cfg('powerMeterId', null),
         heaterPowerKw: this._cfg('heaterPowerKw', DEFAULT_HEATER_POWER_KW),
+        dutyCycle: this._cfg('heaterDutyCycle', DEFAULT_DUTY_CYCLE),
       },
       costs: {
         electricityPrice: this._cfg('electricityPrice', 0),
@@ -215,8 +222,13 @@ class HuumDevice extends Homey.Device {
       }
     }
     if (power) {
-      if (power.source) patch.powerSource = power.source === 'meter' ? 'meter' : 'estimate';
+      if (power.source) {
+        patch.powerSource = ['meter', 'flow'].includes(power.source) ? power.source : 'estimate';
+      }
       if ('meterId' in power) patch.powerMeterId = power.meterId || null;
+      if (power.dutyCycle != null && !Number.isNaN(Number(power.dutyCycle))) {
+        patch.heaterDutyCycle = Math.min(100, Math.max(1, Math.round(Number(power.dutyCycle))));
+      }
       if (power.heaterPowerKw != null && !Number.isNaN(Number(power.heaterPowerKw))) {
         patch.heaterPowerKw = Number(power.heaterPowerKw);
       }
@@ -288,7 +300,7 @@ class HuumDevice extends Homey.Device {
    * and the approximation is left off.
    */
   async _applyEnergySetting(heaterPowerKw) {
-    if (this._usingPowerMeter()) return;
+    if (this._hasLiveMeasurePower()) return;
     const kw = heaterPowerKw || this._cfg('heaterPowerKw', DEFAULT_HEATER_POWER_KW);
     if (typeof kw !== 'number' || !(typeof this.setEnergy === 'function')) return;
     try {
@@ -298,8 +310,28 @@ class HuumDevice extends Homey.Device {
     }
   }
 
+  _powerSource() {
+    const s = this._cfg('powerSource', 'estimate');
+    return (s === 'meter' || s === 'flow') ? s : 'estimate';
+  }
+
+  /** True when a linked device drives measure_power (not a Flow-fed value). */
   _usingPowerMeter() {
-    return this._cfg('powerSource', 'estimate') === 'meter' && !!this._cfg('powerMeterId', null);
+    return this._powerSource() === 'meter' && !!this._cfg('powerMeterId', null);
+  }
+
+  /** True when measure_power is a real value (linked meter or fed by a Flow). */
+  _hasLiveMeasurePower() {
+    return this._usingPowerMeter() || this._powerSource() === 'flow';
+  }
+
+  /** Flow action: feed an external power reading into this device. */
+  async setMeasuredPower(watts) {
+    const w = Math.max(0, Number(watts) || 0);
+    if (!this.hasCapability('measure_power')) {
+      await this.addCapability('measure_power').catch((err) => this.error('add measure_power:', err.message));
+    }
+    await this._setCapabilitySafe('measure_power', w);
   }
 
   async _bindPowerMeter() {
@@ -533,7 +565,7 @@ class HuumDevice extends Homey.Device {
       ['alarm_water', hasSteamer && waterSensor],
       ['onoff.light', hasLight],
       ['alarm_contact', doorSensor],
-      ['measure_power', this._usingPowerMeter()],
+      ['measure_power', this._hasLiveMeasurePower()],
       // Retired: drop it from devices paired by the version that briefly had it.
       ['thermostat_mode', false],
     ]);
@@ -568,6 +600,7 @@ class HuumDevice extends Homey.Device {
     }
 
     await this._syncWarnings(status);
+    await this._syncRemoteState(status);
     await this._syncSafetyAlarms(status);
     await this._syncTimeRemaining(status);
     await this._trackSessionStats(status);
@@ -575,6 +608,29 @@ class HuumDevice extends Homey.Device {
     await this._syncInfoSettings(status);
 
     return status;
+  }
+
+  /** Whether the UKU currently refuses a remote start (safety not confirmed). */
+  static _isBlocked(status) {
+    return !!status && typeof status.remoteSafetyState === 'string'
+      && status.remoteSafetyState.toLowerCase() !== 'safe';
+  }
+
+  /** For the "remote start is/is not blocked" Flow condition. */
+  isRemoteBlocked() {
+    return HuumDevice._isBlocked(this._lastStatus);
+  }
+
+  /** Fire the remote_control_blocked / _available Flow triggers on the edge. */
+  async _syncRemoteState(status) {
+    const blocked = HuumDevice._isBlocked(status);
+    if (this._remoteBlocked === undefined) { this._remoteBlocked = blocked; return; }
+    if (blocked === this._remoteBlocked) return;
+    this._remoteBlocked = blocked;
+    const cardId = blocked ? 'remote_control_blocked' : 'remote_control_available';
+    this.homey.flow.getDeviceTriggerCard(cardId)
+      .trigger(this)
+      .catch((err) => this.error(`Failed to trigger ${cardId}:`, err.message));
   }
 
   /**
@@ -690,11 +746,20 @@ class HuumDevice extends Homey.Device {
 
   /** Best guess at the heater's current draw in watts. */
   _currentPowerW() {
-    if (this.hasCapability('measure_power')) {
+    // A real reading (linked meter or Flow-fed) wins.
+    if (this._hasLiveMeasurePower() && this.hasCapability('measure_power')) {
       const p = this.getCapabilityValue('measure_power');
-      if (typeof p === 'number' && p > 0) return p;
+      if (typeof p === 'number' && p >= 0) return p;
     }
-    return (Number(this._cfg('heaterPowerKw', DEFAULT_HEATER_POWER_KW)) || DEFAULT_HEATER_POWER_KW) * 1000;
+    // Estimate: full rated power while heating up, duty-cycled once at temp.
+    const full = (Number(this._cfg('heaterPowerKw', DEFAULT_HEATER_POWER_KW)) || DEFAULT_HEATER_POWER_KW) * 1000;
+    const measure = this.getCapabilityValue('measure_temperature');
+    const target = this.getCapabilityValue('target_temperature');
+    const atTemp = typeof measure === 'number' && typeof target === 'number'
+      && measure >= target - HEATUP_MARGIN_C;
+    if (!atTemp) return full;
+    const duty = Math.min(100, Math.max(0, Number(this._cfg('heaterDutyCycle', DEFAULT_DUTY_CYCLE)) || DEFAULT_DUTY_CYCLE));
+    return full * (duty / 100);
   }
 
   /**
@@ -846,9 +911,13 @@ class HuumDevice extends Homey.Device {
       lightInstalled: yesNo(configHasFlag(src.config, CONFIG_FLAGS.LIGHT)),
       childLock: config ? String(config.childLock) : '-',
       remoteSafetyState: src.remoteSafetyState || '-',
+      remoteBlocked: this.homey.__(HuumDevice._isBlocked(src) ? 'labels.yes' : 'labels.no'),
       paymentEndDate: src.paymentEndDate || '-',
       deviceLimits: config
         ? `${config.minTemp}–${config.maxTemp} °C${config.maxTimer ? `, timer ${config.minTimer}–${config.maxTimer} min` : ''}`
+        : '-',
+      maxHeatingTime: (config && (config.maxHeatingTime || config.maxHeatTime))
+        ? `${config.maxHeatingTime || config.maxHeatTime} min`
         : '-',
       totalHeatingTime: this._formatDuration(this.getStoreValue('totalHeatingMinutes') || 0),
       lastSessionSummary: this._buildSessionSummaryText(),
