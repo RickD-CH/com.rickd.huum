@@ -49,10 +49,42 @@ safety check.
 - Approximate **Energy tab** usage while heating, based on a heater power
   (kW) you enter in the device settings (the API doesn't report real
   wattage, so this is an estimate, not a measurement)
-- Device settings show read-only info reported by the heater itself:
-  **whether a steamer and a light/fan are actually connected**, child
-  lock state, remote safety state, subscription (`paymentEndDate`) end
-  date, and its reported temperature/timer limits
+- Device settings show read-only info reported by the heater itself: the
+  **full raw status** (including "in use by another user", which was
+  otherwise invisible), **whether a steamer and a light/fan are actually
+  connected**, child lock state, remote safety state, subscription
+  (`paymentEndDate`) end date, and its reported temperature/timer limits
+- **Adaptive polling**: refreshes often while heating (default 30s,
+  configurable), much less often while idle (default every 5 min,
+  configurable) — any capability change (turning on, changing temperature,
+  ...) still refreshes immediately regardless of this schedule. Goes
+  easier on the HUUM cloud than polling at a fixed rate 24/7.
+
+## Feature comparison
+
+Researched against the **official HUUM Homey app** and the **Home
+Assistant `huum` integration** (a mature, actively maintained reference —
+part of Home Assistant core) to see what's realistically possible and
+what's already been done well elsewhere:
+
+| | Official Homey app | HA integration | This app |
+|---|---|---|---|
+| Set target humidity | ❌ | ✅ (fixed 0–40%, ignores temperature) | ✅ 0–90%, temperature-aware max |
+| "No water" alarm | ❌ | ❌ (doesn't exist there either) | ✅ `alarm_water` |
+| Emergency stop alarm | ❌ | ❌ | ✅ `alarm_generic` |
+| Time remaining / finishing-soon | ❌ | ❌ | ✅ |
+| Steamer/light hardware detection | ❌ | ✅ (used internally, not shown) | ✅ shown in settings |
+| Energy tab estimate | ❌ | ❌ | ✅ |
+| Full status incl. "locked by another user" | ❌ | ❌ | ✅ (settings label) |
+
+**Confirmed NOT possible** (checked against Home Assistant's own
+`diagnostics.py`, which dumps every field the API ever returns): the API
+exposes **no firmware version, no WiFi signal strength, and no other
+device diagnostics** beyond what's listed above — HUUM's cloud API simply
+doesn't have that data, regardless of which client asks for it. It also
+has no endpoint to set a custom heating *duration* — `/start` always runs
+for a fixed period set by HUUM (documented as 3 hours); only temperature
+and humidity are controllable.
 
 ### Steamer/light detection
 

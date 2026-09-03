@@ -11,6 +11,7 @@ const STEAMER_CAPABILITIES = ['target_humidity', 'measure_humidity', 'alarm_wate
 const LIGHT_CAPABILITIES = ['onoff.light'];
 
 const DEFAULT_POLL_INTERVAL_S = 30;
+const DEFAULT_IDLE_POLL_INTERVAL_S = 300;
 const DEFAULT_FINISHING_SOON_MINUTES = 10;
 
 class HuumDevice extends Homey.Device {
@@ -36,13 +37,14 @@ class HuumDevice extends Homey.Device {
     this._registerCapabilityListeners();
     await this._applyEnergySetting();
 
+    this._lastStatus = initialStatus;
     if (initialStatus) {
       await this._applyStatus(initialStatus).catch((err) => this.error('Applying initial status failed:', err.message));
     } else {
       await this._syncStatus().catch((err) => this.error('Initial status sync failed:', err.message));
     }
 
-    this._startPolling();
+    this._scheduleNextPoll();
   }
 
   async onUninit() {
@@ -54,26 +56,37 @@ class HuumDevice extends Homey.Device {
   }
 
   async onSettings({ oldSettings, newSettings, changedKeys }) {
-    if (changedKeys.includes('pollInterval')) {
-      this._startPolling(newSettings.pollInterval);
+    if (changedKeys.includes('pollInterval') || changedKeys.includes('idlePollInterval')) {
+      // Re-schedule immediately with the new interval, using whatever
+      // state we last saw, instead of waiting for the old timer to fire.
+      this._scheduleNextPoll();
     }
     if (changedKeys.includes('heaterPowerKw')) {
       await this._applyEnergySetting(newSettings.heaterPowerKw);
     }
   }
 
-  _startPolling(intervalSeconds) {
+  /**
+   * Adaptive polling: check in often while the heater is actually heating,
+   * much less often while it's off/idle, to go easy on the HUUM cloud.
+   * Any capability change (turning on, changing temperature, ...) still
+   * re-syncs immediately regardless of this schedule.
+   */
+  _scheduleNextPoll() {
     this._clearPoll();
-    const seconds = intervalSeconds || this.getSetting('pollInterval') || DEFAULT_POLL_INTERVAL_S;
-    this._pollInterval = this.homey.setInterval(() => {
+    const activeSeconds = this.getSetting('pollInterval') || DEFAULT_POLL_INTERVAL_S;
+    const idleSeconds = this.getSetting('idlePollInterval') || DEFAULT_IDLE_POLL_INTERVAL_S;
+    const seconds = (this._lastStatus && this._lastStatus.isHeating) ? activeSeconds : idleSeconds;
+
+    this._pollTimeout = this.homey.setTimeout(() => {
       this._syncStatus().catch((err) => this.error('Status sync failed:', err.message));
     }, seconds * 1000);
   }
 
   _clearPoll() {
-    if (this._pollInterval) {
-      this.homey.clearInterval(this._pollInterval);
-      this._pollInterval = null;
+    if (this._pollTimeout) {
+      this.homey.clearTimeout(this._pollTimeout);
+      this._pollTimeout = null;
     }
   }
 
@@ -189,6 +202,9 @@ class HuumDevice extends Homey.Device {
       if (err instanceof HuumAuthError) {
         await this.setUnavailable(this.homey.__('errors.auth_failed')).catch(this.error);
       }
+      // Keep polling on failure too (e.g. a transient network hiccup),
+      // at whatever cadence our last known state warrants.
+      this._scheduleNextPoll();
       throw err;
     }
 
@@ -198,6 +214,9 @@ class HuumDevice extends Homey.Device {
 
     await this._reconcileCapabilities(status);
     await this._applyStatus(status);
+
+    this._lastStatus = status;
+    this._scheduleNextPoll();
 
     return status;
   }
@@ -312,6 +331,7 @@ class HuumDevice extends Homey.Device {
     const config = status.saunaConfig;
     const yesNo = (bool) => this.homey.__(bool ? 'labels.yes' : 'labels.no');
     const settings = {
+      currentStatus: this.homey.__(`status.${status.statusCode}`) || status.statusText || '-',
       steamerInstalled: yesNo(configHasFlag(status.config, CONFIG_FLAGS.STEAMER)),
       lightInstalled: yesNo(configHasFlag(status.config, CONFIG_FLAGS.LIGHT)),
       childLock: config ? String(config.childLock) : '-',

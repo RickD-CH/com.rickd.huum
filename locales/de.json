@@ -13,5 +13,12 @@
   "labels": {
     "yes": "Ja",
     "no": "Nein"
+  },
+  "status": {
+    "230": "Offline",
+    "231": "Online, heizt",
+    "232": "Online, heizt nicht",
+    "233": "Von anderem Nutzer in Benutzung (gesperrt)",
+    "400": "Notaus"
   }
 }
