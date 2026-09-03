@@ -441,11 +441,20 @@ class HuumDevice extends Homey.Device {
   async _start(temperature, humidityPercent) {
     // The UKU can require someone to confirm safety on the physical panel
     // before it accepts a remote start (status.remoteSafetyState). The
-    // official app blocks the start with the same message.
-    const last = this._lastStatus;
+    // official app blocks the start with the same message. Re-check with a
+    // fresh status first — the cached one can be minutes old, and the user
+    // may have just confirmed safety on the panel.
+    let last = this._lastStatus;
     if (last && typeof last.remoteSafetyState === 'string'
       && last.remoteSafetyState.toLowerCase() !== 'safe') {
-      throw new Error(this.homey.__('errors.remote_disabled'));
+      try {
+        last = await this.api.getStatus();
+        this._lastStatus = last;
+      } catch (err) { /* fall through with the cached status */ }
+      if (last && typeof last.remoteSafetyState === 'string'
+        && last.remoteSafetyState.toLowerCase() !== 'safe') {
+        throw new Error(this.homey.__('errors.remote_disabled'));
+      }
     }
     try {
       const args = { temperature, humidity: humidityPercent };
