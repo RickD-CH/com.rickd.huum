@@ -36,6 +36,12 @@ class HuumDevice extends Homey.Device {
 
     await this._migrateLegacySettings();
 
+    // If the app restarted mid-session, don't bill the downtime as energy:
+    // restart the integration clock from now.
+    if (this.getStoreValue('sessionStartedAt')) {
+      await this.setStoreValue('sessionEnergyAt', Date.now()).catch(this.error);
+    }
+
     // Detect which hardware modules (steamer/light) this UKU actually has
     // *before* registering capability listeners, so e.g. target_humidity
     // only gets a listener when it's actually there. Devices paired by an
