@@ -763,8 +763,7 @@
         saveConfig({ adoptMeterTotal: true }, 'saved-adopt', function (cfg) { renderStats({ stats: cfg.stats }); });
       });
       $('btn-donate').addEventListener('click', function () { try { HomeyRef.openURL('https://paypal.me/RickDch'); } catch (x) {} });
-      // TODO: replace with the real thread URL once the forum post is live.
-      $('btn-forum').addEventListener('click', function () { try { HomeyRef.openURL('https://community.homey.app/t/REPLACE-WITH-THREAD-SLUG'); } catch (x) {} });
+      $('btn-forum').addEventListener('click', function () { try { HomeyRef.openURL('https://community.homey.app/t/app-pro-huum-uku-sauna/159173'); } catch (x) {} });
     }
 
     function onHomeyReady(homey) {

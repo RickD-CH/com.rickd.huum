@@ -14,5 +14,9 @@
   "0.7.3": {
     "en": "Added a Flow trigger for the current temperature changing (Homey doesn't offer this one by default).",
     "de": "Neuer Flow-Trigger fuer Aenderung der aktuellen Temperatur (bietet Homey standardmaessig nicht an)."
+  },
+  "0.7.4": {
+    "en": "The Support tab now links to the community forum instead of GitHub.",
+    "de": "Der Support-Tab verlinkt neu auf das Community-Forum statt auf GitHub."
   }
 }
