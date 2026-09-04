@@ -1,6 +1,6 @@
 {
   "0.7.0": {
-    "en": "First test release. Settable target humidity (the setting the official app leaves out), no-water and emergency-stop alarms, and a finishing-soon timer. App settings page with a live sauna overview, editable profiles, a scheduled start, statistics and a per-kWh cost — with optional linking of a real power meter (e.g. a Shelly) for exact energy. A dashboard widget with status, temperatures and one-tap per-profile start. Flow cards for remote-start blocked/available.",
-    "de": "Erste Testversion. Einstellbare Zielfeuchte (die Einstellung, die die offizielle App auslaesst), Wassermangel- und Notaus-Alarm sowie ein \"Bald fertig\"-Timer. App-Einstellungsseite mit Live-Uebersicht, editierbaren Profilen, geplantem Start, Statistik und kWh-Kosten - optional mit einem echten Stromzaehler (z. B. Shelly) fuer exakten Verbrauch. Ein Dashboard-Widget mit Status, Temperaturen und Ein-Tipp-Start pro Profil. Flow-Karten fuer blockierten/freien Fernstart."
+    "en": "First test release. Settable humidity, profiles, scheduled start, energy stats, and a dashboard widget.",
+    "de": "Erste Testversion. Einstellbare Feuchte, Profile, geplanter Start, Verbrauchs-Statistik und ein Dashboard-Widget."
   }
 }
