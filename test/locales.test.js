@@ -1,6 +1,7 @@
 'use strict';
 // Verifies the en/de locale files stay in lock-step: same keys, same
-// {{placeholder}} variables per key, no empty strings. Directly enforces
+// __placeholder__ variables per key (Homey's own Homey.__() substitution
+// syntax — not {{mustache}}), no empty strings. Directly enforces
 // the Homey App Store guideline "avoid sporadic translations throughout
 // the app" / "if translated, keep it consistent" (EN und DE sollen
 // vollständig und synchron sein).
@@ -25,7 +26,7 @@ function flatten(obj, prefix = '') {
 
 function placeholders(str) {
   if (typeof str !== 'string') return new Set();
-  return new Set([...str.matchAll(/\{\{(\w+)\}\}/g)].map((m) => m[1]));
+  return new Set([...str.matchAll(/__(\w+)__/g)].map((m) => m[1]));
 }
 
 (() => {
@@ -49,10 +50,10 @@ function placeholders(str) {
     assert.deepStrictEqual(
       [...enVars].sort(),
       [...deVars].sort(),
-      `"${key}": {{placeholders}} differ between en ("${flatEn[key]}") and de ("${flatDe[key]}")`,
+      `"${key}": __placeholders__ differ between en ("${flatEn[key]}") and de ("${flatDe[key]}")`,
     );
   }
-  console.log('OK: no empty strings, and {{placeholders}} match between en/de for every key');
+  console.log('OK: no empty strings, and __placeholders__ match between en/de for every key');
 
   // Same check for the inline en/de objects inside app.json itself
   // (name, description, driver/flow/capability/settings text, ...).

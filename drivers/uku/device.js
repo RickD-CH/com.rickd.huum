@@ -196,6 +196,7 @@ class HuumDevice extends Homey.Device {
         pollInterval: this._cfg('pollInterval', DEFAULT_POLL_INTERVAL_S),
         idlePollInterval: this._cfg('idlePollInterval', DEFAULT_IDLE_POLL_INTERVAL_S),
         finishingSoonThresholdMinutes: this._cfg('finishingSoonThresholdMinutes', DEFAULT_FINISHING_SOON_MINUTES),
+        notifyBookingEvents: this._cfg('notifyBookingEvents', true),
       },
       power: {
         source: this._powerSource(),
@@ -250,6 +251,9 @@ class HuumDevice extends Homey.Device {
         if (advanced[key] != null && !Number.isNaN(Number(advanced[key]))) {
           patch[key] = Math.round(Number(advanced[key]));
         }
+      }
+      if (typeof advanced.notifyBookingEvents === 'boolean') {
+        patch.notifyBookingEvents = advanced.notifyBookingEvents;
       }
     }
     if (power) {
@@ -442,15 +446,19 @@ class HuumDevice extends Homey.Device {
         await this.setStoreValue('autoStopAt', Date.now() + b.autoStopMinutes * 60 * 1000).catch(this.error);
         this._scheduleAutoStop();
       }
-      await this.homey.notifications.createNotification({
-        excerpt: this.homey.__('notifications.booking_started', { name: this.getName() }),
-      }).catch(() => {});
+      if (this._cfg('notifyBookingEvents', true)) {
+        await this.homey.notifications.createNotification({
+          excerpt: this.homey.__('notifications.booking_started', { name: this.getName() }),
+        }).catch(() => {});
+      }
     } catch (err) {
       this.error('Scheduled start failed:', err.message);
       await this._recordBookingFailure(err);
-      await this.homey.notifications.createNotification({
-        excerpt: this.homey.__('notifications.booking_failed', { name: this.getName(), error: err.message }),
-      }).catch(() => {});
+      if (this._cfg('notifyBookingEvents', true)) {
+        await this.homey.notifications.createNotification({
+          excerpt: this.homey.__('notifications.booking_failed', { name: this.getName(), error: err.message }),
+        }).catch(() => {});
+      }
     } finally {
       this._firingBooking = false;
       await this._syncStatus().catch((err) => this.error('Post-booking status refresh failed:', err.message));

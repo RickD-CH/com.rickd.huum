@@ -6,7 +6,7 @@
     "door_open": "Cannot start the sauna while the door is open",
     "auth_failed": "HUUM login failed. Please repair this device with your current email and password.",
     "missing_credentials": "No HUUM login found for this device. Please repair it with your email and password.",
-    "humidity_exceeds_max": "{{humidity}}% humidity is too high at {{temperature}}°C — the steamer allows at most {{maxHumidity}}% at this temperature.",
+    "humidity_exceeds_max": "__humidity__% humidity is too high at __temperature__°C — the steamer allows at most __maxHumidity__% at this temperature.",
     "profile_not_configured": "This profile has no temperature set yet — open the app settings page to configure it, or use \"Save the current settings as a profile\" first.",
     "remote_disabled": "Remote control is disabled. Confirm safety on the UKU panel first, then try again.",
     "booking_past": "Pick a start time in the future."
@@ -16,11 +16,11 @@
     "door_open": "The door is open — close it to switch on the heating."
   },
   "notifications": {
-    "water_alarm_title": "{{name}}: steamer needs water.",
+    "water_alarm_title": "__name__: steamer needs water.",
     "water_alarm_body": "No water in steamer, steamer system not allowed to start",
-    "water_check_reminder": "{{name}}: check the steamer water before the sauna heats up.",
-    "booking_started": "{{name}}: the scheduled sauna session has started.",
-    "booking_failed": "{{name}}: the scheduled start failed — {{error}}"
+    "water_check_reminder": "__name__: check the steamer water before the sauna heats up.",
+    "booking_started": "__name__: the scheduled sauna session has started.",
+    "booking_failed": "__name__: the scheduled start failed — __error__"
   },
   "labels": {
     "yes": "Yes",

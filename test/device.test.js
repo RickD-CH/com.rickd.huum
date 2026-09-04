@@ -35,8 +35,11 @@ function makeHomeyApi() {
     __(key, vars) {
       const value = key.split('.').reduce((o, k) => (o ? o[k] : undefined), enLocale);
       if (typeof value !== 'string') return key;
+      // Mirrors the real Homey.__() substitution syntax: __varName__, not
+      // {{varName}} — using the wrong one here would let a real-runtime bug
+      // (a literal "__name__" left in a notification) pass silently.
       return vars
-        ? value.replace(/\{\{(\w+)\}\}/g, (_, name) => String(vars[name]))
+        ? value.replace(/__(\w+)__/g, (_, name) => String(vars[name]))
         : value;
     },
     flow: {
@@ -134,7 +137,7 @@ async function testHumidityExceedsMaxIsTranslated() {
   device.api = { turnOn: async () => { throw err; } };
 
   const expected = enLocale.errors.humidity_exceeds_max
-    .replace('{{humidity}}', '50').replace('{{maxHumidity}}', '10').replace('{{temperature}}', '90');
+    .replace('__humidity__', '50').replace('__maxHumidity__', '10').replace('__temperature__', '90');
 
   await assert.rejects(() => device._start(90, 50), (e) => e.message === expected);
   console.log('OK: humidity_exceeds_max is translated using the structured err.data');
@@ -581,6 +584,42 @@ async function testScheduledStartFires() {
   console.log('OK: a scheduled start fires at its time with the booked temperature/humidity, then clears, updating the tile');
 }
 
+async function testBookingNotificationSubstitutesTheDeviceName() {
+  // Homey.__() substitutes __varName__, not {{varName}} — this is exactly
+  // the bug the user spotted live (a literal "{{name}}" in the Timeline).
+  const device = makeDevice({ capabilities: { onoff: false, target_temperature: 80 } });
+  device.api = { turnOn: async () => ({}), getStatus: async () => { throw new Error('x'); } };
+  device.__store.booking = { at: Date.now() - 1000, profile: null, temperature: 70 };
+  await device._fireBooking();
+
+  const note = device.homey.__notifications[0];
+  assert.ok(note, 'a notification was created');
+  assert.ok(note.excerpt.includes('Test Sauna'), `device name should be substituted in: "${note.excerpt}"`);
+  assert.ok(!/\{\{|__name__/.test(note.excerpt), `no leftover placeholder should remain: "${note.excerpt}"`);
+  console.log('OK: the booking-started notification correctly substitutes the device name (no leftover placeholder)');
+}
+
+async function testBookingNotificationsCanBeDisabled() {
+  const device = makeDevice({ capabilities: { onoff: false, target_temperature: 80 } });
+  device.__store.notifyBookingEvents = false;
+  assert.strictEqual(device.getConfig().advanced.notifyBookingEvents, false, 'getConfig() exposes the setting for the toggle');
+
+  // Success path: no notification.
+  device.api = { turnOn: async () => ({}), getStatus: async () => { throw new Error('x'); } };
+  device.__store.booking = { at: Date.now() - 1000, profile: null, temperature: 70 };
+  await device._fireBooking();
+  assert.strictEqual(device.homey.__notifications.length, 0, 'no "started" notification when the setting is off');
+
+  // Failure path: still recorded in the history, just no notification.
+  device.api = { turnOn: async () => { throw new HuumSafetyError(); }, getStatus: async () => { throw new Error('x'); } };
+  device.__store.booking = { at: Date.now() - 1000, profile: null, temperature: 70 };
+  await device._fireBooking();
+  assert.strictEqual(device.homey.__notifications.length, 0, 'no "failed" notification when the setting is off either');
+  assert.strictEqual(device.getStoreValue('sessionHistory')[0].failed, true, 'the failure is still recorded in the history regardless');
+
+  console.log('OK: the "notify on scheduled start / failure" toggle silences the notifications without affecting the history');
+}
+
 async function testClearBookingResetsTheTile() {
   const device = makeDevice({ capabilities: { huum_booking_status: null } });
   const at = Date.now() + 3600000;
@@ -745,6 +784,8 @@ async function testStartProfilePickerFillsTheSliders() {
   await testTargetsNotOverwrittenWhileOff();
   await testStartProfilePickerFillsTheSliders();
   await testScheduledStartFires();
+  await testBookingNotificationSubstitutesTheDeviceName();
+  await testBookingNotificationsCanBeDisabled();
   await testClearBookingResetsTheTile();
   await testStaleBookingIsDroppedNotFired();
   await testFailedScheduledStartIsRecordedWithReason();

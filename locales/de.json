@@ -6,7 +6,7 @@
     "door_open": "Die Sauna kann nicht gestartet werden, solange die Tür offen ist",
     "auth_failed": "HUUM-Anmeldung fehlgeschlagen. Bitte dieses Gerät mit aktueller E-Mail-Adresse und Passwort reparieren.",
     "missing_credentials": "Keine HUUM-Anmeldedaten für dieses Gerät gefunden. Bitte mit E-Mail-Adresse und Passwort reparieren.",
-    "humidity_exceeds_max": "{{humidity}}% Luftfeuchtigkeit ist bei {{temperature}}°C zu hoch — der Verdampfer erlaubt bei dieser Temperatur höchstens {{maxHumidity}}%.",
+    "humidity_exceeds_max": "__humidity__% Luftfeuchtigkeit ist bei __temperature__°C zu hoch — der Verdampfer erlaubt bei dieser Temperatur höchstens __maxHumidity__%.",
     "profile_not_configured": "Für dieses Profil ist noch keine Temperatur eingestellt — öffne die App-Einstellungsseite, um es zu konfigurieren, oder nutze zuerst \"Aktuelle Einstellungen als Profil speichern\".",
     "remote_disabled": "Die Fernsteuerung ist deaktiviert. Bestätige zuerst die Sicherheit am UKU-Bedienfeld und versuche es dann erneut.",
     "booking_past": "Wähle eine Startzeit in der Zukunft."
@@ -16,11 +16,11 @@
     "door_open": "Die Tür ist offen — schließe sie, um die Heizung einzuschalten."
   },
   "notifications": {
-    "water_alarm_title": "{{name}}: Verdampfer braucht Wasser.",
+    "water_alarm_title": "__name__: Verdampfer braucht Wasser.",
     "water_alarm_body": "Kein Wasser im Verdampfer, Verdampfer darf nicht starten",
-    "water_check_reminder": "{{name}}: Prüfe das Verdampferwasser, bevor die Sauna aufheizt.",
-    "booking_started": "{{name}}: Die geplante Sauna-Sitzung wurde gestartet.",
-    "booking_failed": "{{name}}: Der geplante Start ist fehlgeschlagen — {{error}}"
+    "water_check_reminder": "__name__: Prüfe das Verdampferwasser, bevor die Sauna aufheizt.",
+    "booking_started": "__name__: Die geplante Sauna-Sitzung wurde gestartet.",
+    "booking_failed": "__name__: Der geplante Start ist fehlgeschlagen — __error__"
   },
   "labels": {
     "yes": "Ja",
