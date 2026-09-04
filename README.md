@@ -2,9 +2,16 @@
 
 A [Homey](https://homey.app) app for HUUM sauna heaters with the UKU WiFi
 controller. It does the things the official HUUM Homey app doesn't: set the
-**target humidity**, a **no-water** and **emergency-stop** alarm, a
+**target humidity**, a **no-water** and **safety cut-out** alarm, a
 **finishing-soon** timer, per-session **energy & cost**, a **scheduled start**,
 **profiles**, a **dashboard widget**, and remote-start **Flow cards**.
+
+## Why this app exists
+
+HUUM's own mobile app can set target humidity and a few other things the
+official Homey app never exposed. I reported that gap to Athom in June 2025;
+it still hadn't been picked up, so this app talks to HUUM's cloud API
+directly instead.
 
 ## What it does
 
@@ -13,7 +20,9 @@ target/current humidity (only when the UKU reports a steamer), light/fan relay
 (only when wired up), a "start with" profile picker, and a "refresh now" button.
 
 **Alarms** — door open (`alarm_contact`), no water in the steamer
-(`alarm_water`, from `steamerError`), emergency stop (`alarm_generic`).
+(`alarm_water`, from `steamerError`), safety cut-out (`alarm_generic`, from
+`isEmergencyStop`), and a **remote start blocked** sensor (`huum_remote_blocked`)
+for the UKU's separate remote-safety confirmation.
 
 **Profiles** — 3 named presets (name / temperature / humidity), edited on the
 app settings page. Picking one on the device fills the target sliders; the
