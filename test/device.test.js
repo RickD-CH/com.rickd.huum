@@ -532,6 +532,32 @@ async function testAutoOffSurvivesRestartAndClearsWhenOff() {
   console.log('OK: the booking auto-off re-arms across a restart and clears once the sauna stops');
 }
 
+async function testSessionEnergyFromMeterDelta() {
+  const device = makeDevice({ capabilities: { huum_session_count: 0, onoff: false } });
+  device.__store.electricityPrice = 0.30;
+  device.__store.powerSource = 'meter';
+  device.__store.powerMeterId = 'm1';
+  device.__store.meterTotalKwh = 100;
+
+  device._lastStatus = { isHeating: false };
+  await device._trackSessionStats({ isHeating: true, targetTemperature: 80, targetHumidity: 0 });
+  assert.strictEqual(device.getStoreValue('sessionMeterStartKwh'), 100, 'meter snapshot taken at session start');
+
+  device.__store.meterTotalKwh = 105.4; // the Shelly counted 5.4 kWh
+  device.__store.sessionEnergyAt -= 90 * 60 * 1000;
+  device._lastStatus = { isHeating: true };
+  await device._trackSessionStats({ isHeating: false });
+
+  const last = device.getStoreValue('lastSession');
+  assert.strictEqual(last.kwh, 5.4, 'session kWh is the meter counter delta, not the estimate');
+  assert.strictEqual(last.cost, 1.62, '5.4 kWh * 0.30');
+  assert.strictEqual(last.energySource, 'meter');
+  const hist = device.getStoreValue('sessionHistory');
+  assert.strictEqual(hist.length, 1, 'the session lands in the history');
+  assert.strictEqual(hist[0].kwh, 5.4);
+  console.log('OK: with a linked meter, session energy is the meter counter delta and is kept in the history');
+}
+
 async function testStartProfilePickerFillsTheSliders() {
   const device = makeDevice({
     capabilities: { onoff: false, huum_start_profile: 'manual', target_temperature: 80, target_humidity: 0.2 },
@@ -570,6 +596,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testSetMeasuredPowerFeedsCapability();
   await testProfileDefaultsSeededOverNull();
   await testSessionEnergyAndCost();
+  await testSessionEnergyFromMeterDelta();
   await testWaterAlarmIgnoresZeroSteamerError();
   await testWaterCheckReminderFiresOnStart();
   await testTargetsNotOverwrittenWhileOff();

@@ -197,6 +197,8 @@ class HuumDevice extends Homey.Device {
         totalKwh: this.getStoreValue('totalKwh') || 0,
         totalCost: this.getStoreValue('totalCost') || 0,
         lastSession: this.getStoreValue('lastSession') || null,
+        recent: (this.getStoreValue('sessionHistory') || []).slice(0, 12),
+        meterTotalKwh: this._powerSource() === 'meter' ? (this.getStoreValue('meterTotalKwh') ?? null) : null,
       },
       hasSteamer: this.hasCapability('target_humidity'),
       hasMeter: this._usingPowerMeter(),
@@ -205,13 +207,22 @@ class HuumDevice extends Homey.Device {
 
   /** Called by api.js when the app settings page saves. */
   async setConfig({
-    profiles, advanced, power, costs, resetProfiles, booking, clearBooking,
+    profiles, advanced, power, costs, resetProfiles, booking, clearBooking, adoptMeterTotal,
   } = {}) {
     if (clearBooking) await this.clearBooking();
     else if (booking) await this.setBooking(booking);
     const patch = {};
     if (resetProfiles) {
       Object.assign(patch, DEFAULT_PROFILES);
+    }
+    if (adoptMeterTotal) {
+      const m = this.getStoreValue('meterTotalKwh');
+      if (this._powerSource() === 'meter' && typeof m === 'number') {
+        const round2 = (n) => Math.round(n * 100) / 100;
+        const price = Number(this._cfg('electricityPrice', 0)) || 0;
+        patch.totalKwh = round2(m);
+        patch.totalCost = price > 0 ? round2(m * price) : (this.getStoreValue('totalCost') || 0);
+      }
     }
     if (Array.isArray(profiles)) {
       profiles.forEach((p, i) => {
@@ -502,6 +513,17 @@ class HuumDevice extends Homey.Device {
         this._setCapabilitySafe('measure_power', typeof value === 'number' ? value : null)
           .catch((err) => this.error('measure_power mirror failed:', err.message));
       });
+      // Also track the meter's own lifetime kWh counter — for the "total from
+      // the meter" figure and per-session metered energy.
+      const totalObj = meter.capabilitiesObj && meter.capabilitiesObj.meter_power;
+      if (totalObj && typeof totalObj.value === 'number') {
+        await this.setStoreValue('meterTotalKwh', totalObj.value).catch(() => {});
+      }
+      if (meter.capabilities && meter.capabilities.includes('meter_power')) {
+        this._meterTotalInstance = meter.makeCapabilityInstance('meter_power', (value) => {
+          if (typeof value === 'number') this.setStoreValue('meterTotalKwh', value).catch(() => {});
+        });
+      }
       this.log('Linked power meter', meterId);
     } catch (err) {
       // Permission missing, meter deleted, older firmware — fall back to the
@@ -512,13 +534,11 @@ class HuumDevice extends Homey.Device {
   }
 
   async _unbindPowerMeter() {
-    if (this._powerMeterInstance) {
-      try {
-        this._powerMeterInstance.destroy();
-      } catch (err) {
-        this.error('Power meter unbind failed:', err.message);
+    for (const key of ['_powerMeterInstance', '_meterTotalInstance']) {
+      if (this[key]) {
+        try { this[key].destroy(); } catch (err) { this.error('Power meter unbind failed:', err.message); }
+        this[key] = null;
       }
-      this._powerMeterInstance = null;
     }
   }
 
@@ -973,6 +993,11 @@ class HuumDevice extends Homey.Device {
     );
     await this.setStoreValue('sessionWh', 0);
     await this.setStoreValue('sessionEnergyAt', Date.now());
+    // Snapshot the linked meter's lifetime counter so the session's energy can
+    // be read straight off the meter (exact) rather than integrated.
+    const meterTotal = this.getStoreValue('meterTotalKwh');
+    await this.setStoreValue('sessionMeterStartKwh',
+      (this._powerSource() === 'meter' && typeof meterTotal === 'number') ? meterTotal : null);
   }
 
   /** Best guess at the heater's current draw in watts. */
@@ -1024,7 +1049,17 @@ class HuumDevice extends Homey.Device {
     const humidity = this.getStoreValue('sessionStartHumidityPercent') || 0;
 
     const round2 = (n) => Math.round(n * 100) / 100;
-    const kwh = round2((this.getStoreValue('sessionWh') || 0) / 1000);
+    // Prefer the linked meter's own counter delta over the integrated estimate.
+    const meterStart = this.getStoreValue('sessionMeterStartKwh');
+    const meterNow = this.getStoreValue('meterTotalKwh');
+    let kwh;
+    let energySource = this._powerSource();
+    if (typeof meterStart === 'number' && typeof meterNow === 'number' && meterNow >= meterStart) {
+      kwh = round2(meterNow - meterStart);
+      energySource = 'meter';
+    } else {
+      kwh = round2((this.getStoreValue('sessionWh') || 0) / 1000);
+    }
     const price = Number(this._cfg('electricityPrice', 0)) || 0;
     const cost = price > 0 ? round2(kwh * price) : 0;
 
@@ -1035,12 +1070,17 @@ class HuumDevice extends Homey.Device {
     await this.setStoreValue('totalHeatingMinutes', totalHeatingMinutes);
     await this.setStoreValue('totalKwh', round2((this.getStoreValue('totalKwh') || 0) + kwh));
     await this.setStoreValue('totalCost', round2((this.getStoreValue('totalCost') || 0) + cost));
-    await this.setStoreValue('lastSession', {
-      startedAt, endedAt, durationMinutes, temperature, humidity, kwh, cost,
-    });
+    const record = {
+      startedAt, endedAt, durationMinutes, temperature, humidity, kwh, cost, energySource,
+    };
+    await this.setStoreValue('lastSession', record);
+    const history = this.getStoreValue('sessionHistory') || [];
+    history.unshift(record);
+    await this.setStoreValue('sessionHistory', history.slice(0, 60));
     await this.setStoreValue('sessionStartedAt', null);
     await this.setStoreValue('sessionWh', 0);
     await this.setStoreValue('sessionEnergyAt', null);
+    await this.setStoreValue('sessionMeterStartKwh', null);
 
     await this._setCapabilitySafe('huum_session_count', sessionCount);
 

@@ -163,6 +163,13 @@
     <div class="panel" id="panel-stats">
       <h2 id="h-stats">Statistics</h2>
       <div class="card" id="stats"></div>
+      <div class="btnrow" id="adopt-row" hidden>
+        <button id="adopt-meter" type="button" class="ghost">Use meter total</button>
+        <span class="saved" id="saved-adopt" hidden>Saved</span>
+      </div>
+
+      <h2 id="h-recent" hidden>Recent sessions</h2>
+      <div class="card" id="recent" hidden></div>
 
       <h2 id="h-power">Heater power</h2>
       <div class="card">
@@ -264,7 +271,7 @@
       fChildLock: 'Kindersicherung', fRemote: 'Fernsicherheitsstatus',
       fPayment: 'Abo gültig bis', fLimits: 'Gemeldete Grenzen',
       sSessions: 'Sitzungen', sTotal: 'Gesamte Heizzeit', sTotalKwh: 'Gesamt-Verbrauch',
-      sTotalCost: 'Gesamt-Kosten', sAvgKwh: 'Ø Verbrauch/Sitzung',
+      sTotalCost: 'Gesamt-Kosten', sAvgKwh: 'Ø Verbrauch/Sitzung', sMeterTotal: 'Zähler gesamt (Shelly)', hRecent: 'Letzte Sitzungen', adoptMeter: 'Zählerstand als Gesamt übernehmen',
       sLastWhen: 'Letzte Sitzung', sLastTemp: 'Letzte – Temp./Feuchte',
       sLastKwh: 'Letzte – Verbrauch', sLastCost: 'Letzte – Kosten',
       yes: 'Ja', no: 'Nein', none: '–',
@@ -303,7 +310,7 @@
       fChildLock: 'Child lock', fRemote: 'Remote safety state',
       fPayment: 'Subscription valid until', fLimits: 'Reported limits',
       sSessions: 'Sessions', sTotal: 'Total heating time', sTotalKwh: 'Total energy',
-      sTotalCost: 'Total cost', sAvgKwh: 'Avg energy/session',
+      sTotalCost: 'Total cost', sAvgKwh: 'Avg energy/session', sMeterTotal: 'Meter total (Shelly)', hRecent: 'Recent sessions', adoptMeter: 'Use the meter total as the overall total',
       sLastWhen: 'Last session', sLastTemp: 'Last – temp./humidity',
       sLastKwh: 'Last – energy', sLastCost: 'Last – cost',
       yes: 'Yes', no: 'No', none: '–',
@@ -390,6 +397,7 @@
       for (var i = 0; i < ids.length; i++) setTxt(ids[i], T.tabs[i]);
       setTxt('theme-label', T.themeLabel);
       setTxt('h-info', T.info); setTxt('h-stats', T.stats);
+      setTxt('h-recent', T.hRecent); setTxt('adopt-meter', T.adoptMeter); setTxt('saved-adopt', T.saved);
       setTxt('h-adv', T.hAdv); setTxt('h-profiles', T.hProfiles);
       setTxt('btn-refresh', T.refresh); setTxt('data-stamp', T.dataLoading);
       setTxt('h-booking', T.hBooking);
@@ -447,6 +455,9 @@
         [T.sTotalCost, cost > 0 ? fmtMoney(cost) : T.none],
         [T.sAvgKwh, n > 0 ? (Math.round(kwh / n * 10) / 10) + ' kWh' : T.none],
       ];
+      if (st.meterTotalKwh != null) {
+        r.push([T.sMeterTotal, (Math.round(st.meterTotalKwh * 10) / 10) + ' kWh']);
+      }
       var last = st.lastSession;
       if (last) {
         r.push([T.sLastWhen, fmtClock(new Date(last.startedAt)) + ' · ' + fmtDur(last.durationMinutes)]);
@@ -458,6 +469,22 @@
         r.push([T.sLastWhen, T.none]);
       }
       $('stats').innerHTML = rows(r);
+      $('adopt-row').hidden = st.meterTotalKwh == null;
+
+      var recent = st.recent || [];
+      $('h-recent').hidden = !recent.length;
+      $('recent').hidden = !recent.length;
+      if (recent.length) {
+        $('recent').innerHTML = recent.map(function (x) {
+          var head = fmtClock(new Date(x.startedAt)).split(',')[0] + ' · ' + fmtDur(x.durationMinutes);
+          var parts = [(x.temperature == null ? '?' : x.temperature) + '°'];
+          if (x.humidity > 0) parts.push(x.humidity + '%');
+          if (x.kwh > 0) parts.push(x.kwh + ' kWh' + (x.energySource === 'meter' ? ' ⚡' : ''));
+          if (x.cost > 0) parts.push(fmtMoney(x.cost));
+          return '<div class="row"><span class="k">' + esc(head) + '</span><span class="v">'
+            + esc(parts.join(' · ')) + '</span></div>';
+        }).join('');
+      }
     }
 
     function renderProfiles(cfg) {
@@ -731,6 +758,9 @@
       });
       $('save-costs').addEventListener('click', function () {
         saveConfig({ costs: { electricityPrice: Number($('electricityPrice').value) || 0 } }, 'saved-costs', renderCosts);
+      });
+      $('adopt-meter').addEventListener('click', function () {
+        saveConfig({ adoptMeterTotal: true }, 'saved-adopt', function (cfg) { renderStats({ stats: cfg.stats }); });
       });
       $('btn-donate').addEventListener('click', function () { try { HomeyRef.openURL('https://paypal.me/RickDch'); } catch (x) {} });
       $('btn-github').addEventListener('click', function () { try { HomeyRef.openURL('https://github.com/RickD-CH/com.rickd.huum/issues'); } catch (x) {} });
