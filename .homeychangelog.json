@@ -22,5 +22,9 @@
   "0.7.5": {
     "en": "A warning when scheduling with remote start blocked, and failed scheduled starts now show up in the session history.",
     "de": "Warnung beim Planen, falls Fernstart blockiert ist, und fehlgeschlagene geplante Starts erscheinen neu im Sitzungsverlauf."
+  },
+  "0.7.6": {
+    "en": "New device capability showing whether a scheduled start is active, and when.",
+    "de": "Neue Geraete-Anzeige, ob ein geplanter Start aktiv ist, und wann."
   }
 }

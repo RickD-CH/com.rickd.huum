@@ -25,7 +25,8 @@
   "labels": {
     "yes": "Ja",
     "no": "Nein",
-    "no_sessions_yet": "Noch keine Sitzungen"
+    "no_sessions_yet": "Noch keine Sitzungen",
+    "not_scheduled": "Nicht geplant"
   },
   "status": {
     "230": "Offline",

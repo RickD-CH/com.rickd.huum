@@ -79,6 +79,7 @@ class HuumDevice extends Homey.Device {
     this._scheduleNextPoll();
     this._scheduleBooking();
     this._scheduleAutoStop();
+    await this._syncBookingCapability().catch((err) => this.error('Booking capability sync failed:', err.message));
   }
 
   async onUninit() {
@@ -309,12 +310,21 @@ class HuumDevice extends Homey.Device {
     };
     await this.setStoreValue('booking', clean);
     this._scheduleBooking();
+    await this._syncBookingCapability();
     return this.getBooking();
   }
 
   async clearBooking() {
     this._clearBookingTimer();
     await this.setStoreValue('booking', null).catch(this.error);
+    await this._syncBookingCapability();
+  }
+
+  /** Keeps the device-visible "scheduled start" indicator in sync with the store. */
+  async _syncBookingCapability() {
+    const b = this.getBooking();
+    const text = b ? new Date(b.at).toLocaleString() : this.homey.__('labels.not_scheduled');
+    await this._setCapabilitySafe('huum_booking_status', text);
   }
 
   _clearBookingTimer() {
@@ -383,6 +393,7 @@ class HuumDevice extends Homey.Device {
     this._firingBooking = true;
     try {
       await this.setStoreValue('booking', null).catch(this.error);
+      await this._syncBookingCapability();
       // Missed by more than 30 min (app was down) — don't start a sauna
       // nobody is standing next to.
       if (Date.now() - b.at > 30 * 60 * 1000) {
@@ -832,6 +843,7 @@ class HuumDevice extends Homey.Device {
       ['huum_start_profile', true],
       ['huum_refresh', true],
       ['huum_remote_blocked', true],
+      ['huum_booking_status', true],
       // Split from the plain capability so Homey stops pairing it with
       // target_temperature into a "heating to X" thermostat dial.
       ['measure_temperature.room', true],

@@ -511,7 +511,9 @@ async function testTargetsNotOverwrittenWhileOff() {
 
 async function testScheduledStartFires() {
   const device = makeDevice({
-    capabilities: { onoff: false, target_temperature: 80, huum_start_profile: 'manual' },
+    capabilities: {
+      onoff: false, target_temperature: 80, huum_start_profile: 'manual', huum_booking_status: null,
+    },
   });
   let started = null;
   device.api = { turnOn: async (a) => { started = a; return {}; }, getStatus: async () => { throw new Error('no refresh'); } };
@@ -520,6 +522,11 @@ async function testScheduledStartFires() {
   const at = Date.now() + 60000;
   await device.setBooking({ at, temperature: 70, humidity: 20 });
   assert.strictEqual(device.getBooking().at, at, 'booking stored');
+  assert.strictEqual(
+    device.getCapabilityValue('huum_booking_status'),
+    new Date(at).toLocaleString(),
+    'the device tile shows when the scheduled start will fire',
+  );
 
   await assert.rejects(() => device.setBooking({ at: Date.now() - 1000 }), /future/i, 'past start times are rejected');
 
@@ -530,7 +537,24 @@ async function testScheduledStartFires() {
   assert.deepStrictEqual(started, { temperature: 70, humidity: 20 }, 'scheduled start used the booked values');
   assert.strictEqual(device.getBooking(), null, 'booking cleared once it fired');
   assert.strictEqual(device.getCapabilityValue('onoff'), true);
-  console.log('OK: a scheduled start fires at its time with the booked temperature/humidity, then clears');
+  assert.strictEqual(
+    device.getCapabilityValue('huum_booking_status'),
+    enLocale.labels.not_scheduled,
+    'the tile goes back to "not scheduled" once the booking is consumed',
+  );
+  console.log('OK: a scheduled start fires at its time with the booked temperature/humidity, then clears, updating the tile');
+}
+
+async function testClearBookingResetsTheTile() {
+  const device = makeDevice({ capabilities: { huum_booking_status: null } });
+  const at = Date.now() + 3600000;
+  await device.setBooking({ at, temperature: 70 });
+  assert.notStrictEqual(device.getCapabilityValue('huum_booking_status'), enLocale.labels.not_scheduled);
+
+  await device.clearBooking();
+  assert.strictEqual(device.getBooking(), null);
+  assert.strictEqual(device.getCapabilityValue('huum_booking_status'), enLocale.labels.not_scheduled, 'cancelling a booking resets the tile too');
+  console.log('OK: cancelling a scheduled start resets the device tile to "not scheduled"');
 }
 
 async function testStaleBookingIsDroppedNotFired() {
@@ -684,6 +708,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testTargetsNotOverwrittenWhileOff();
   await testStartProfilePickerFillsTheSliders();
   await testScheduledStartFires();
+  await testClearBookingResetsTheTile();
   await testStaleBookingIsDroppedNotFired();
   await testFailedScheduledStartIsRecordedWithReason();
   await testAutoOffSurvivesRestartAndClearsWhenOff();

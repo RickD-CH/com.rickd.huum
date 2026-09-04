@@ -25,7 +25,8 @@
   "labels": {
     "yes": "Yes",
     "no": "No",
-    "no_sessions_yet": "No sessions yet"
+    "no_sessions_yet": "No sessions yet",
+    "not_scheduled": "Not scheduled"
   },
   "status": {
     "230": "Offline",

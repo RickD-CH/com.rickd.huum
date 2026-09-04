@@ -31,7 +31,12 @@ device switch and the widget can start straight from a profile.
 **Scheduled start** — pick a time, a profile (or temperature + humidity), and an
 optional auto-off after N hours. HUUM's API has no booking endpoint, so this
 runs on Homey; it survives a restart and a start missed by >30 min is dropped
-rather than fired late.
+rather than fired late. Whether one is active, and when it fires, is on the
+device tile too (`huum_booking_status`); the app settings page warns right in
+the scheduling form if remote start is currently blocked, and a start that
+fails or gets dropped is recorded in the session history with its reason
+(door open, remote blocked, missed, ...) instead of only a fleeting
+notification.
 
 **Energy** — the HUUM API never reports wattage, so the Energy tab is fed by one
 of: a kW estimate (full power heating up, then a duty cycle), a linked
