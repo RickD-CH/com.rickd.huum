@@ -21,6 +21,19 @@
     "setDeviceConfig": { "method": "put", "path": "/device/:id/config" },
     "getPowerMeters": { "method": "get", "path": "/power-meters" }
   },
+  "widgets": {
+    "sauna": {
+      "id": "sauna",
+      "name": { "en": "Sauna", "de": "Sauna" },
+      "settings": [],
+      "height": 132,
+      "api": {
+        "getState": { "method": "GET", "path": "/state" },
+        "setPower": { "method": "POST", "path": "/power" },
+        "startProfile": { "method": "POST", "path": "/profile" }
+      }
+    }
+  },
   "images": {
     "small": "/assets/images/small.png",
     "large": "/assets/images/large.png",

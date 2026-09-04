@@ -1006,6 +1006,51 @@ class HuumDevice extends Homey.Device {
     };
   }
 
+  /** Compact live state for the dashboard widget. */
+  getWidgetState() {
+    const s = this._lastStatus || {};
+    const th = this.hasCapability('target_humidity')
+      ? Math.round((this.getCapabilityValue('target_humidity') || 0) * 100)
+      : null;
+    return {
+      name: this.getName(),
+      available: this.getAvailable(),
+      heating: !!this.getCapabilityValue('onoff'),
+      measureTemperature: this.getCapabilityValue('measure_temperature.room') ?? null,
+      targetTemperature: this.getCapabilityValue('target_temperature') ?? null,
+      hasSteamer: this.hasCapability('target_humidity'),
+      targetHumidity: th,
+      timeRemaining: this.getCapabilityValue('huum_time_remaining') ?? null,
+      doorOpen: this.hasCapability('alarm_contact') ? !!this.getCapabilityValue('alarm_contact') : false,
+      remoteBlocked: HuumDevice._isBlocked(s),
+      emergencyStop: this.hasCapability('alarm_generic') ? !!this.getCapabilityValue('alarm_generic') : false,
+      statusText: s.statusText || null,
+      startProfile: this.hasCapability('huum_start_profile') ? this.getCapabilityValue('huum_start_profile') : 'manual',
+      profiles: [1, 2, 3].map((n) => ({
+        id: `profile${n}`,
+        name: this._cfg(`profile${n}Name`, `Profil ${n}`),
+        temperature: this._cfg(`profile${n}Temperature`, null),
+        humidity: this._cfg(`profile${n}Humidity`, null),
+      })),
+    };
+  }
+
+  /** Widget: turn on with the last settings, or off. */
+  async widgetSetPower(on) {
+    await this.triggerCapabilityListener('onoff', !!on);
+    return this.getWidgetState();
+  }
+
+  /** Widget: start (or re-start) with a named profile. */
+  async widgetStartProfile(profileId) {
+    await this.startWithProfile(profileId);
+    if (this.hasCapability('huum_start_profile')) {
+      await this.setCapabilityValue('huum_start_profile', profileId).catch(this.error);
+    }
+    await this._setCapabilitySafe('onoff', true);
+    return this.getWidgetState();
+  }
+
   async _setCapabilitySafe(capabilityId, value) {
     if (!this.hasCapability(capabilityId)) return;
     if (value === null || value === undefined) return;

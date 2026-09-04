@@ -82,6 +82,17 @@ class HuumApp extends Homey.App {
   }
 
   /**
+   * The sauna the dashboard widget controls. This app only ever has one
+   * (one HUUM account = one sauna); if a `deviceId` widget setting is set,
+   * honour it, else just take the first.
+   */
+  getWidgetDevice(deviceId) {
+    const devices = this.getUkuDevices();
+    if (deviceId) return devices.find((d) => d.getData().id === deviceId) || null;
+    return devices[0] || null;
+  }
+
+  /**
    * Candidate devices for the "measure the heater with a real power meter"
    * option — anything on the Homey exposing `measure_power`, minus this
    * app's own saunas.

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      color-scheme: light dark;
+      --fg: #1a1a1a; --muted: #767676; --border: #e2e2e2;
+      --card: #ffffff; --chip: #f1f1f3; --chip-fg: #1a1a1a;
+      --accent: #E85D2B; --on: #E85D2B; --warn: #d9822b; --err: #d32f2f;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --fg: #f2f2f4; --muted: #a0a0a8; --border: #38383c;
+        --card: #1e1e20; --chip: #2c2c30; --chip-fg: #f2f2f4;
+        --accent: #ff7a4d; --on: #ff7a4d; --warn: #e0a44a; --err: #ef5350;
+      }
+    }
+    .homey-dark-mode {
+      --fg: #f2f2f4; --muted: #a0a0a8; --border: #38383c;
+      --card: #1e1e20; --chip: #2c2c30; --chip-fg: #f2f2f4;
+      --accent: #ff7a4d; --on: #ff7a4d; --warn: #e0a44a; --err: #ef5350;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: var(--fg); background: var(--card); padding: 12px 14px 14px;
+      font-size: 13px;
+    }
+    .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .status { display: flex; align-items: center; gap: 7px; font-weight: 600; min-width: 0; }
+    .status .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: 0 0 auto; }
+    .dot.on { background: var(--on); box-shadow: 0 0 0 3px color-mix(in srgb, var(--on) 25%, transparent); }
+    .dot.warn { background: var(--warn); }
+    .time { color: var(--muted); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+    .temps { display: flex; align-items: baseline; gap: 10px; margin: 9px 0 11px; }
+    .big { font-size: 30px; font-weight: 700; line-height: 1; }
+    .sub { color: var(--muted); font-size: 12px; }
+    .hum { margin-left: auto; color: var(--muted); font-size: 13px; align-self: center; }
+    .warnline { color: var(--warn); font-size: 12px; margin: -4px 0 9px; }
+    .btns { display: flex; gap: 6px; }
+    button {
+      flex: 1; border: 0; border-radius: 9px; background: var(--chip); color: var(--chip-fg);
+      font-size: 12px; font-weight: 600; padding: 10px 4px; cursor: pointer;
+      -webkit-tap-highlight-color: transparent; white-space: nowrap; overflow: hidden;
+      text-overflow: ellipsis; transition: opacity .12s ease, transform .06s ease;
+      font-family: inherit;
+    }
+    button:active { transform: scale(.96); }
+    button:disabled { opacity: .4; cursor: default; }
+    button.off { flex: 0 0 auto; min-width: 58px; }
+    button.on { background: var(--on); color: #fff; }
+    button.prof.active { box-shadow: inset 0 0 0 2px var(--fg); }
+    .msg { color: var(--muted); text-align: center; padding: 14px 0; font-size: 12px; }
+    .msg.err { color: var(--err); }
+  </style>
+</head>
+<body>
+  <div id="root"><div class="msg" id="loading">…</div></div>
+
+  <script type="text/javascript">
+    var DE = (navigator.language || 'en').toLowerCase().indexOf('de') === 0;
+    var T = DE ? {
+      loading: 'Lädt …', noSauna: 'Keine Sauna gekoppelt', failed: 'Nicht erreichbar',
+      off: 'Aus', heating: 'Heizt', idle: 'Bereit', unavailable: 'Offline',
+      doorOpen: 'Tür offen', remoteBlocked: 'Fernstart am UKU-Panel bestätigen',
+      emergency: 'Notaus aktiv', now: 'jetzt', start: 'Start',
+    } : {
+      loading: 'Loading …', noSauna: 'No sauna paired', failed: 'Unreachable',
+      off: 'Off', heating: 'Heating', idle: 'Ready', unavailable: 'Offline',
+      doorOpen: 'Door open', remoteBlocked: 'Confirm remote start on the UKU panel',
+      emergency: 'Emergency stop', now: 'now', start: 'Start',
+    };
+
+    var HomeyRef = null;
+    var busy = false;
+    var lastJson = null;
+
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+    function fmtTime(min) {
+      if (min == null || min <= 0) return '';
+      var h = Math.floor(min / 60), m = min % 60;
+      return '⏱ ' + (h > 0 ? h + ':' + (m < 10 ? '0' : '') + m : m + ' min');
+    }
+
+    function api(method, path, body) {
+      return new Promise(function (resolve, reject) {
+        try {
+          HomeyRef.api(method, path, body || {}, function (err, res) {
+            if (err) reject(err instanceof Error ? err : new Error(String(err && err.message || err)));
+            else resolve(res);
+          });
+        } catch (e) { reject(e); }
+      });
+    }
+
+    function resize() {
+      try { HomeyRef.setHeight(document.body.scrollHeight); } catch (e) {}
+    }
+
+    function showMsg(text, isErr) {
+      document.getElementById('root').innerHTML =
+        '<div class="msg' + (isErr ? ' err' : '') + '">' + esc(text) + '</div>';
+      resize();
+    }
+
+    function statusLabel(s) {
+      if (!s.available) return { txt: T.unavailable, cls: 'warn' };
+      if (s.emergencyStop) return { txt: T.emergency, cls: 'warn' };
+      if (s.doorOpen) return { txt: T.doorOpen, cls: 'warn' };
+      if (s.heating) return { txt: T.heating, cls: 'on' };
+      if (s.remoteBlocked) return { txt: T.remoteBlocked, cls: 'warn' };
+      return { txt: T.idle, cls: '' };
+    }
+
+    function render(s) {
+      if (!s || s.noSauna) { showMsg(T.noSauna); return; }
+      var st = statusLabel(s);
+      var canStart = s.available && !s.doorOpen && !s.remoteBlocked && !s.emergencyStop;
+      var startable = s.profiles.filter(function (p) { return typeof p.temperature === 'number'; });
+
+      var timeTxt = s.heating ? fmtTime(s.timeRemaining) : '';
+      var cur = s.measureTemperature == null ? '–' : Math.round(s.measureTemperature) + '°';
+      var tgt = s.targetTemperature == null ? '–' : Math.round(s.targetTemperature) + '°';
+      var humTxt = (s.hasSteamer && s.targetHumidity != null)
+        ? '<span class="hum">💧 ' + s.targetHumidity + ' %</span>' : '';
+
+      var warnHtml = '';
+      if (!s.heating && s.remoteBlocked && !s.doorOpen && s.available) {
+        warnHtml = '<div class="warnline">⚠ ' + esc(T.remoteBlocked) + '</div>';
+      }
+
+      var profBtns = startable.map(function (p) {
+        var active = s.heating && s.startProfile === p.id;
+        return '<button class="prof' + (active ? ' active' : '') + '" data-profile="' + esc(p.id) + '"'
+          + (canStart || busy ? '' : ' disabled') + '>' + esc(p.name) + '</button>';
+      }).join('');
+      if (!profBtns) {
+        profBtns = '<button class="on" data-on="1"' + (canStart && !busy ? '' : ' disabled') + '>'
+          + esc(T.start) + '</button>';
+      }
+
+      document.getElementById('root').innerHTML =
+        '<div class="head">'
+        + '<span class="status"><span class="dot ' + st.cls + '"></span>'
+        + '<span class="txt">' + esc(st.txt) + '</span></span>'
+        + (timeTxt ? '<span class="time">' + esc(timeTxt) + '</span>' : '')
+        + '</div>'
+        + warnHtml
+        + '<div class="temps">'
+        + '<span class="big">' + esc(tgt) + '</span>'
+        + '<span class="sub">← ' + esc(cur) + ' ' + esc(T.now) + '</span>'
+        + humTxt
+        + '</div>'
+        + '<div class="btns">'
+        + '<button class="off" data-on="0"' + (s.heating && !busy ? '' : ' disabled') + '>' + esc(T.off) + '</button>'
+        + profBtns
+        + '</div>';
+
+      Array.prototype.forEach.call(document.querySelectorAll('button'), function (b) {
+        b.addEventListener('click', function () {
+          if (busy || b.disabled) return;
+          if (HomeyRef.hapticFeedback) { try { HomeyRef.hapticFeedback(); } catch (e) {} }
+          if (b.dataset.on === '0') act(api('POST', '/power', { on: false }));
+          else if (b.dataset.on === '1') act(api('POST', '/power', { on: true }));
+          else if (b.dataset.profile) act(api('POST', '/profile', { profile: b.dataset.profile }));
+        });
+      });
+      resize();
+    }
+
+    function act(promise) {
+      busy = true;
+      Array.prototype.forEach.call(document.querySelectorAll('button'), function (b) { b.disabled = true; });
+      promise.then(function (s) {
+        busy = false; lastJson = JSON.stringify(s); render(s);
+      }).catch(function (err) {
+        busy = false; console.error(err);
+        showMsg(T.failed, true);
+        setTimeout(refresh, 1500);
+      });
+    }
+
+    function refresh() {
+      return api('GET', '/state').then(function (s) {
+        var j = JSON.stringify(s);
+        if (j === lastJson) return;
+        lastJson = j; render(s);
+      }).catch(function (err) {
+        console.error(err);
+        if (err && /no_sauna/.test(String(err.message))) { lastJson = null; showMsg(T.noSauna); }
+        else if (lastJson == null) showMsg(T.failed, true);
+      });
+    }
+
+    function onHomeyReady(Homey) {
+      HomeyRef = Homey;
+      Homey.ready({ height: 132 });
+      refresh();
+      setInterval(refresh, 20000);
+    }
+    window.onHomeyReady = onHomeyReady;
+  </script>
+</body>
+</html>
