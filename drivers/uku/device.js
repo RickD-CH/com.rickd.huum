@@ -379,8 +379,11 @@ class HuumDevice extends Homey.Device {
     this.registerCapabilityListener('target_temperature', async (value) => {
       // The HUUM API has no separate "set temperature while off" endpoint;
       // it only accepts a temperature as part of /start. If the heater is
-      // off we just remember the value locally for the next start.
-      if (!this.getCapabilityValue('onoff')) return;
+      // off we just keep the value locally for the next start.
+      if (!this.getCapabilityValue('onoff')) {
+        await this._clearStartProfileOnManualChange();
+        return;
+      }
       const humidity = this._getTargetHumidityPercent();
       await this._start(value, humidity);
       await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
@@ -392,8 +395,9 @@ class HuumDevice extends Homey.Device {
       this.registerCapabilityListener('target_humidity', async (value) => {
         const humidityPercent = Math.round(value * 100);
         if (!this.getCapabilityValue('onoff')) {
-          // Remember it locally; it will be sent along with the next start.
+          // Keep it locally; it will be sent along with the next start.
           await this.setCapabilityValue('target_humidity', value).catch(this.error);
+          await this._clearStartProfileOnManualChange();
           return;
         }
         const temperature = this.getCapabilityValue('target_temperature') || 80;
@@ -415,10 +419,33 @@ class HuumDevice extends Homey.Device {
     }
 
     if (this.hasCapability('huum_start_profile')) {
-      // Just a preference: it decides what the next "switch on" starts with.
       this.registerCapabilityListener('huum_start_profile', async (value) => {
         await this.setCapabilityValue('huum_start_profile', value).catch(this.error);
+        if (!value || value === 'manual') return;
+        const temperature = this._cfg(`${value}Temperature`, null);
+        if (typeof temperature !== 'number') return; // profile not configured yet
+
+        if (this.getCapabilityValue('onoff')) {
+          // Already heating — actually switch the sauna to this profile now.
+          await this.startWithProfile(value);
+          return;
+        }
+        // Off — reflect the profile in the target sliders so it's clear what
+        // the next start will use (and _applyStatus won't overwrite it while off).
+        await this._setCapabilitySafe('target_temperature', temperature);
+        if (this.hasCapability('target_humidity')) {
+          const hum = this._cfg(`${value}Humidity`, null);
+          if (typeof hum === 'number') await this._setCapabilitySafe('target_humidity', hum / 100);
+        }
       });
+    }
+  }
+
+  /** A manual tweak of the target sliders means "not a canned profile anymore". */
+  async _clearStartProfileOnManualChange() {
+    if (this.hasCapability('huum_start_profile')
+      && this.getCapabilityValue('huum_start_profile') !== 'manual') {
+      await this.setCapabilityValue('huum_start_profile', 'manual').catch(this.error);
     }
   }
 
@@ -622,12 +649,17 @@ class HuumDevice extends Homey.Device {
   async _applyStatus(status) {
     await this._setCapabilitySafe('onoff', status.isHeating);
     await this._setCapabilitySafe('measure_temperature.room', status.temperature);
-    await this._setCapabilitySafe('target_temperature', status.targetTemperature);
     await this._setCapabilitySafe('measure_humidity', status.humidity);
-    if (typeof status.targetHumidity === 'number') {
-      // Homey's target_humidity is a 0-1 fraction shown as %, unlike
-      // measure_humidity which is a plain 0-100 reading.
-      await this._setCapabilitySafe('target_humidity', status.targetHumidity / 100);
+    // The target temp/humidity capabilities double as "what the next start
+    // uses". Only let HUUM's values win while it's actually heating — when
+    // off they hold the owner's intent (a profile pick, a slider nudge).
+    if (status.isHeating) {
+      await this._setCapabilitySafe('target_temperature', status.targetTemperature);
+      if (typeof status.targetHumidity === 'number') {
+        // Homey's target_humidity is a 0-1 fraction shown as %, unlike
+        // measure_humidity which is a plain 0-100 reading.
+        await this._setCapabilitySafe('target_humidity', status.targetHumidity / 100);
+      }
     }
     // _setCapabilitySafe is a no-op when the capability was removed (door
     // sensor declared absent), so no extra guard needed here.

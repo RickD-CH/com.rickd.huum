@@ -442,9 +442,9 @@ async function testStartProfilePickerStartsWithThatProfile() {
 async function testHumidityCapabilityScales() {
   // Homey quirk: measure_humidity is a plain 0-100 reading, but
   // target_humidity is a 0-1 fraction rendered as a percentage.
-  const device = makeDevice({ capabilities: { target_humidity: 0, measure_humidity: 0 } });
+  const device = makeDevice({ capabilities: { target_humidity: 0, measure_humidity: 0, onoff: true } });
   await device._applyStatus({
-    isHeating: false, temperature: 40, targetTemperature: 80,
+    isHeating: true, temperature: 40, targetTemperature: 80,
     humidity: 38, targetHumidity: 45, doorClosed: true,
   });
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.45, 'target: 45% -> 0.45');
@@ -452,6 +452,46 @@ async function testHumidityCapabilityScales() {
   device.__capabilities.set('target_humidity', 0.6);
   assert.strictEqual(device._getTargetHumidityPercent(), 60, '0.6 -> 60% for the API');
   console.log('OK: measure_humidity is 0-100, target_humidity is the 0-1 fraction Homey expects');
+}
+
+async function testTargetsNotOverwrittenWhileOff() {
+  const device = makeDevice({
+    capabilities: { onoff: false, target_temperature: 55, target_humidity: 0.4, measure_humidity: 0 },
+  });
+  // A poll while the sauna is off must not clobber the owner's intended
+  // next-start values with whatever HUUM still reports.
+  await device._applyStatus({
+    isHeating: false, temperature: 22, targetTemperature: 90, targetHumidity: 10, doorClosed: true,
+  });
+  assert.strictEqual(device.getCapabilityValue('target_temperature'), 55, 'kept while off');
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'kept while off');
+
+  // While heating, HUUM's values do win.
+  device.__capabilities.set('onoff', true);
+  await device._applyStatus({
+    isHeating: true, temperature: 60, targetTemperature: 90, targetHumidity: 10, doorClosed: true,
+  });
+  assert.strictEqual(device.getCapabilityValue('target_temperature'), 90, 'synced while heating');
+  console.log('OK: target temp/humidity hold the owner\'s intent while off, sync from HUUM while heating');
+}
+
+async function testStartProfilePickerFillsTheSliders() {
+  const device = makeDevice({
+    capabilities: { onoff: false, huum_start_profile: 'manual', target_temperature: 80, target_humidity: 0.2 },
+  });
+  device.__store.profile2Temperature = 50;
+  device.__store.profile2Humidity = 55;
+  device._registerCapabilityListeners();
+
+  await device.triggerCapabilityListener('huum_start_profile', 'profile2');
+  assert.strictEqual(device.getCapabilityValue('target_temperature'), 50, 'slider jumps to the profile temp');
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.55, 'slider jumps to the profile humidity');
+  assert.strictEqual(device.getCapabilityValue('huum_start_profile'), 'profile2');
+
+  // A manual slider nudge afterwards drops back to "manual".
+  await device.triggerCapabilityListener('target_temperature', 62);
+  assert.strictEqual(device.getCapabilityValue('huum_start_profile'), 'manual', 'manual tweak clears the profile');
+  console.log('OK: picking a profile fills the target sliders; a manual tweak clears the pick');
 }
 
 (async () => {
@@ -475,6 +515,8 @@ async function testHumidityCapabilityScales() {
   await testSessionEnergyAndCost();
   await testWaterAlarmIgnoresZeroSteamerError();
   await testWaterCheckReminderFiresOnStart();
+  await testTargetsNotOverwrittenWhileOff();
+  await testStartProfilePickerFillsTheSliders();
   await testStartProfilePickerStartsWithThatProfile();
   await testHumidityCapabilityScales();
   console.log('\nAll device.js exception-handling tests passed.');

@@ -139,7 +139,7 @@
       }
 
       var profBtns = startable.map(function (p) {
-        var active = s.heating && s.startProfile === p.id;
+        var active = s.startProfile === p.id;
         return '<button class="prof' + (active ? ' active' : '') + '" data-profile="' + esc(p.id) + '"'
           + (canStart || busy ? '' : ' disabled') + '>' + esc(p.name) + '</button>';
       }).join('');
