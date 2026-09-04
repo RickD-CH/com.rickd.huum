@@ -45,6 +45,7 @@ function makeHomeyApi() {
       }),
     },
     clock: { getTimezone: () => 'Europe/Zurich' },
+    i18n: { getLanguage: () => 'de' },
     __triggeredCards: triggeredCards,
     __notifications: notifications,
     notifications: {
@@ -340,12 +341,21 @@ async function testFormatDeviceDateTimeUsesTheHomeyTimezone() {
   assert.strictEqual(device._formatDeviceDateTime(ms), '15.06.2026 12:30', '24h, day-first, shifted into the Homey\'s real timezone');
 
   device.homey.clock = { getTimezone: () => 'America/New_York' }; // UTC-4 in June (EDT)
-  assert.strictEqual(device._formatDeviceDateTime(ms), '15.06.2026 06:30');
+  assert.strictEqual(device._formatDeviceDateTime(ms), '15.06.2026 06:30', 'still 24h — the mocked i18n language is "de"');
 
-  // No clock manager (or it throws) — must not crash, degrades gracefully.
+  // The clock format itself (24h vs 12h AM/PM) follows the Homey's own
+  // language, not a hardcoded choice — this is the actual per-user request.
+  device.homey.clock = { getTimezone: () => 'Europe/Zurich' };
+  device.homey.i18n = { getLanguage: () => 'en' };
+  assert.strictEqual(device._formatDeviceDateTime(ms), '15.06.2026 12:30 PM', 'an English Homey sees 12h AM/PM');
+  device.homey.i18n = { getLanguage: () => 'de' };
+  assert.strictEqual(device._formatDeviceDateTime(ms), '15.06.2026 12:30', 'a German Homey sees 24h, back to normal');
+
+  // No clock/i18n manager (or either throws) — must not crash, degrades gracefully.
   device.homey.clock = undefined;
+  device.homey.i18n = undefined;
   assert.strictEqual(typeof device._formatDeviceDateTime(ms), 'string');
-  console.log('OK: _formatDeviceDateTime renders in the Homey\'s configured timezone, not the Node runtime default (was UTC/en-US)');
+  console.log('OK: _formatDeviceDateTime renders in the Homey\'s timezone, and 24h vs 12h AM/PM follows its language, not the Node runtime default (was UTC/en-US)');
 }
 
 async function testGetConfigExposesRemoteBlocked() {

@@ -332,17 +332,22 @@ class HuumDevice extends Homey.Device {
    * toLocaleString() silently renders in UTC and en-US regardless of the
    * Homey's own timezone/language (confirmed live: a Europe/Zurich booking
    * showed up two hours early, in m/d/y AM/PM). This asks the Homey what
-   * timezone it's actually configured for and formats explicitly against
-   * it, in an unambiguous 24h day-first format.
+   * timezone and language it's actually configured for: the date is always
+   * day-first (D.M.Y), but the clock — 24h or 12h AM/PM — follows the
+   * Homey's own language, same as the user sees everywhere else on it.
    */
   _formatDeviceDateTime(ms) {
     let timeZone;
     try { timeZone = this.homey.clock.getTimezone(); } catch (err) { /* clock manager unavailable — fall through */ }
+    let language;
+    try { language = this.homey.i18n.getLanguage(); } catch (err) { /* i18n manager unavailable — fall through */ }
     try {
-      const parts = new Intl.DateTimeFormat('en-GB', {
-        timeZone, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
-      }).formatToParts(new Date(ms)).reduce((o, p) => { o[p.type] = p.value; return o; }, {});
-      return `${parts.day}.${parts.month}.${parts.year} ${parts.hour}:${parts.minute}`;
+      const date = new Date(ms);
+      const d = new Intl.DateTimeFormat('en-GB', {
+        timeZone, day: '2-digit', month: '2-digit', year: 'numeric',
+      }).formatToParts(date).reduce((o, p) => { o[p.type] = p.value; return o; }, {});
+      const time = new Intl.DateTimeFormat(language || 'en', { timeZone, hour: '2-digit', minute: '2-digit' }).format(date);
+      return `${d.day}.${d.month}.${d.year} ${time}`;
     } catch (err) {
       return new Date(ms).toLocaleString(); // best-effort fallback if Intl/timeZone data is missing
     }

@@ -30,5 +30,9 @@
   "0.7.7": {
     "en": "Fixed dates shown on the device (scheduled start, last session) using UTC/AM-PM instead of your Homey's own timezone.",
     "de": "Am Geraet angezeigte Daten (geplanter Start, letzte Sitzung) nutzten UTC/AM-PM statt der Zeitzone deiner Homey - behoben."
+  },
+  "0.7.8": {
+    "en": "The clock format for those dates (24h or AM/PM) now follows your Homey's own language setting.",
+    "de": "Das Zeitformat dieser Anzeigen (24h oder AM/PM) richtet sich neu nach der Sprache deiner Homey."
   }
 }
