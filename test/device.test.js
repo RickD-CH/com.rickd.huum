@@ -77,7 +77,7 @@ async function testPostActionRefreshFailureDoesNotRejectListener() {
     capabilities: {
       onoff: false,
       target_temperature: 80,
-      target_humidity: 30,
+      target_humidity: 0.3,
       'measure_temperature.room': 40,
       measure_humidity: 20,
       alarm_contact: false,
@@ -110,7 +110,7 @@ async function testPostActionRefreshFailureDoesNotRejectListener() {
 
 async function testDoorOpenErrorStillRejectsWithTranslatedMessage() {
   const device = makeDevice({
-    capabilities: { onoff: false, target_temperature: 80, target_humidity: 30 },
+    capabilities: { onoff: false, target_temperature: 80, target_humidity: 0.3 },
   });
   device.api = {
     turnOn: async () => { throw new HuumSafetyError(); },
@@ -230,7 +230,7 @@ async function testSessionTrackingIgnoresEndWithNoKnownStart() {
 
 async function testSaveAndStartWithProfile() {
   const device = makeDevice({
-    capabilities: { target_temperature: 88, target_humidity: 20, onoff: true },
+    capabilities: { target_temperature: 88, target_humidity: 0.2, onoff: true },
   });
 
   await device.saveProfile('profile1');
@@ -402,7 +402,7 @@ async function testWaterAlarmIgnoresZeroSteamerError() {
 
 async function testWaterCheckReminderFiresOnStart() {
   const device = makeDevice({
-    capabilities: { onoff: false, target_temperature: 80, target_humidity: 30 },
+    capabilities: { onoff: false, target_temperature: 80, target_humidity: 0.3 },
   });
   device.__settings = { waterCheckReminder: true };
   device.api = { turnOn: async () => ({}), getStatus: async () => { throw new Error('no refresh in test'); } };
@@ -439,15 +439,19 @@ async function testStartProfilePickerStartsWithThatProfile() {
   console.log('OK: the device start-profile picker decides what switching on starts with');
 }
 
-async function testHumidityCapabilityUsesPercentScale() {
+async function testHumidityCapabilityScales() {
+  // Homey quirk: measure_humidity is a plain 0-100 reading, but
+  // target_humidity is a 0-1 fraction rendered as a percentage.
   const device = makeDevice({ capabilities: { target_humidity: 0, measure_humidity: 0 } });
   await device._applyStatus({
     isHeating: false, temperature: 40, targetTemperature: 80,
     humidity: 38, targetHumidity: 45, doorClosed: true,
   });
-  assert.strictEqual(device.getCapabilityValue('target_humidity'), 45, 'stored as 45, not 0.45');
-  assert.strictEqual(device.getCapabilityValue('measure_humidity'), 38);
-  console.log('OK: humidity capabilities use Homey\'s 0-100 percent scale');
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.45, 'target: 45% -> 0.45');
+  assert.strictEqual(device.getCapabilityValue('measure_humidity'), 38, 'measure: 38% -> 38');
+  device.__capabilities.set('target_humidity', 0.6);
+  assert.strictEqual(device._getTargetHumidityPercent(), 60, '0.6 -> 60% for the API');
+  console.log('OK: measure_humidity is 0-100, target_humidity is the 0-1 fraction Homey expects');
 }
 
 (async () => {
@@ -472,7 +476,7 @@ async function testHumidityCapabilityUsesPercentScale() {
   await testWaterAlarmIgnoresZeroSteamerError();
   await testWaterCheckReminderFiresOnStart();
   await testStartProfilePickerStartsWithThatProfile();
-  await testHumidityCapabilityUsesPercentScale();
+  await testHumidityCapabilityScales();
   console.log('\nAll device.js exception-handling tests passed.');
 })().catch((err) => {
   console.error('TEST FAILED:', err);

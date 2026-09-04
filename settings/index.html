@@ -49,8 +49,9 @@
       -webkit-appearance: none; appearance: none;
     }
     #theme { width: auto; }
-    .profile { border-top: 1px solid var(--border); padding-top: 8px; margin-top: 8px; }
+    .profile { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
     .profile:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+    .profile-num { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--accent); margin-bottom: 4px; }
     .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
     .btnrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
     .btnrow button {
@@ -200,7 +201,7 @@
     var DE = (navigator.language || 'en').toLowerCase().indexOf('de') === 0;
     var T = DE ? {
       picker: 'Sauna', tabs: ['Übersicht', 'Einstellungen', 'Statistik', 'Support'],
-      info: 'Sauna', stats: 'Statistik', hAdv: 'Statusabruf', hProfiles: 'Profile',
+      info: 'Sauna', stats: 'Statistik', hAdv: 'Statusabruf', hProfiles: 'Profile', profileN: 'Profil',
       refresh: '↻ Aktualisieren', dataAt: 'Stand: ', dataLoading: 'lädt …',
       poll: 'Statusabruf beim Heizen (Sek.)', idle: 'Statusabruf im Standby (Sek.)',
       finish: 'Schwelle "bald fertig" (Min.)',
@@ -234,7 +235,7 @@
       themeAuto: 'Automatisch', themeLight: 'Hell', themeDark: 'Dunkel',
     } : {
       picker: 'Sauna', tabs: ['Overview', 'Settings', 'Statistics', 'Support'],
-      info: 'Sauna', stats: 'Statistics', hAdv: 'Polling', hProfiles: 'Profiles',
+      info: 'Sauna', stats: 'Statistics', hAdv: 'Polling', hProfiles: 'Profiles', profileN: 'Profile',
       refresh: '↻ Refresh', dataAt: 'As of: ', dataLoading: 'loading …',
       poll: 'Status refresh while heating (sec)', idle: 'Status refresh while idle (sec)',
       finish: '"Finishing soon" threshold (min)',
@@ -372,7 +373,7 @@
         [T.fCurTemp, s.measureTemperature == null ? T.none : (s.measureTemperature + ' °C')],
         [T.fTgtTemp, s.targetTemperature == null ? T.none : (s.targetTemperature + ' °C')],
         [T.fCurHum, s.measureHumidity == null ? T.none : (Math.round(s.measureHumidity) + ' %')],
-        [T.fTgtHum, s.targetHumidity == null ? T.none : (Math.round(s.targetHumidity) + ' %')],
+        [T.fTgtHum, s.targetHumidity == null ? T.none : (Math.round(s.targetHumidity * 100) + ' %')],
         [T.fRemaining, s.timeRemaining == null ? T.none : s.timeRemaining],
         [T.fDoor, s.doorOpen == null ? T.none : (s.doorOpen ? T.yes : T.no)],
         [T.fPower, s.measurePower == null ? T.none : (Math.round(s.measurePower) + ' W')],
@@ -415,6 +416,7 @@
       var humLabel = hasSteamer ? T.hum : (T.hum + ' — ' + T.noSteamer);
       $('profiles').innerHTML = cfg.profiles.map(function (p, idx) {
         return '<div class="profile">'
+          + '<div class="profile-num">' + T.profileN + ' ' + (idx + 1) + '</div>'
           + '<label>' + T.name + '</label>'
           + '<input type="text" data-p="' + idx + '" data-f="name" value="' + esc(p.name || '') + '" maxlength="40" />'
           + '<div class="grid2">'

@@ -390,7 +390,7 @@ class HuumDevice extends Homey.Device {
     // in the official HUUM app. Only present on saunas with a steamer.
     if (this.hasCapability('target_humidity')) {
       this.registerCapabilityListener('target_humidity', async (value) => {
-        const humidityPercent = Math.round(value);
+        const humidityPercent = Math.round(value * 100);
         if (!this.getCapabilityValue('onoff')) {
           // Remember it locally; it will be sent along with the next start.
           await this.setCapabilityValue('target_humidity', value).catch(this.error);
@@ -476,7 +476,7 @@ class HuumDevice extends Homey.Device {
   _getTargetHumidityPercent() {
     if (!this.hasCapability('target_humidity')) return undefined;
     const value = this.getCapabilityValue('target_humidity');
-    return typeof value === 'number' ? Math.round(value) : undefined;
+    return typeof value === 'number' ? Math.round(value * 100) : undefined;
   }
 
   /**
@@ -625,7 +625,9 @@ class HuumDevice extends Homey.Device {
     await this._setCapabilitySafe('target_temperature', status.targetTemperature);
     await this._setCapabilitySafe('measure_humidity', status.humidity);
     if (typeof status.targetHumidity === 'number') {
-      await this._setCapabilitySafe('target_humidity', status.targetHumidity);
+      // Homey's target_humidity is a 0-1 fraction shown as %, unlike
+      // measure_humidity which is a plain 0-100 reading.
+      await this._setCapabilitySafe('target_humidity', status.targetHumidity / 100);
     }
     // _setCapabilitySafe is a no-op when the capability was removed (door
     // sensor declared absent), so no extra guard needed here.
