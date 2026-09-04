@@ -304,7 +304,7 @@ action whose immediate refresh fails (see "Running the tests" below).
 Independent, unofficial app by a HUUM owner — **not affiliated with, endorsed by
 or supported by HUUM OÜ**. "HUUM" and "UKU" are used only to describe
 compatibility. The disclaimer is in `README.txt` / `README.de.txt` (the App
-Store description), modelled on the community Geberit AquaClean app.
+Store description).
 
 ## Author & support info
 
