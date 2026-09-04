@@ -88,6 +88,7 @@
   <div id="content" hidden>
     <nav class="tabs">
       <button class="tab active" data-tab="overview" id="t-overview">Overview</button>
+      <button class="tab" data-tab="stats" id="t-stats">Statistics</button>
       <button class="tab" data-tab="profiles" id="t-profiles">Profiles</button>
       <button class="tab" data-tab="advanced" id="t-advanced">Advanced</button>
       <button class="tab" data-tab="energy" id="t-energy">Energy</button>
@@ -97,6 +98,13 @@
     <div class="panel active" id="panel-overview">
       <h2 id="h-info">Sauna</h2>
       <div class="card" id="info"></div>
+      <div class="btnrow">
+        <button id="btn-refresh" type="button" class="ghost">↻ Refresh</button>
+        <span class="hint" id="data-stamp"></span>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-stats">
       <h2 id="h-stats">Statistics</h2>
       <div class="card" id="stats"></div>
     </div>
@@ -195,8 +203,9 @@
   <script type="text/javascript">
     var DE = (navigator.language || 'en').toLowerCase().indexOf('de') === 0;
     var T = DE ? {
-      picker: 'Sauna', tabs: ['Übersicht', 'Profile', 'Erweitert', 'Energie', 'Support'],
+      picker: 'Sauna', tabs: ['Übersicht', 'Statistik', 'Profile', 'Erweitert', 'Energie', 'Support'],
       info: 'Sauna', stats: 'Statistik',
+      refresh: '↻ Aktualisieren', dataAt: 'Stand: ', dataLoading: 'lädt …',
       poll: 'Statusabruf beim Heizen (Sek.)', idle: 'Statusabruf im Standby (Sek.)',
       finish: 'Schwelle "bald fertig" (Min.)',
       hPower: 'Ofenleistung', hCosts: 'Kosten',
@@ -226,8 +235,9 @@
       yes: 'Ja', no: 'Nein', none: '–',
       themeAuto: 'Automatisch', themeLight: 'Hell', themeDark: 'Dunkel',
     } : {
-      picker: 'Sauna', tabs: ['Overview', 'Profiles', 'Advanced', 'Energy', 'Support'],
+      picker: 'Sauna', tabs: ['Overview', 'Statistics', 'Profiles', 'Advanced', 'Energy', 'Support'],
       info: 'Sauna', stats: 'Statistics',
+      refresh: '↻ Refresh', dataAt: 'As of: ', dataLoading: 'loading …',
       poll: 'Status refresh while heating (sec)', idle: 'Status refresh while idle (sec)',
       finish: '"Finishing soon" threshold (min)',
       hPower: 'Heater power', hCosts: 'Costs',
@@ -334,9 +344,10 @@
 
     function applyText() {
       setTxt('picker-label', T.picker);
-      var ids = ['t-overview', 't-profiles', 't-advanced', 't-energy', 't-support'];
+      var ids = ['t-overview', 't-stats', 't-profiles', 't-advanced', 't-energy', 't-support'];
       for (var i = 0; i < ids.length; i++) setTxt(ids[i], T.tabs[i]);
       setTxt('h-info', T.info); setTxt('h-stats', T.stats);
+      setTxt('btn-refresh', T.refresh); setTxt('data-stamp', T.dataLoading);
       setTxt('l-poll', T.poll); setTxt('l-idle', T.idle); setTxt('l-finish', T.finish);
       setTxt('h-power', T.hPower); setTxt('h-costs', T.hCosts);
       setTxt('l-ps-estimate', T.psEstimate); setTxt('l-ps-meter', T.psMeter); setTxt('l-ps-flow', T.psFlow);
@@ -460,8 +471,14 @@
       });
     }
 
+    function fmtClock(d) {
+      function p(n) { return (n < 10 ? '0' : '') + n; }
+      return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    }
+
     function refresh() {
       return api('GET', '/overview').then(function (list) {
+        setTxt('data-stamp', T.dataAt + fmtClock(new Date()));
         saunas = Array.isArray(list) ? list : [];
         if (!saunas.length) { $('content').hidden = true; $('empty').hidden = false; return; }
         $('empty').hidden = true; $('content').hidden = false;
@@ -499,6 +516,13 @@
         });
       });
       $('picker').addEventListener('change', function (e) { selectSauna(e.target.value).catch(showFatal); });
+      $('btn-refresh').addEventListener('click', function () {
+        var b = $('btn-refresh');
+        if (b.disabled) return;
+        b.disabled = true;
+        setTxt('data-stamp', T.dataLoading);
+        refresh().then(function () { setTimeout(function () { b.disabled = false; }, 400); });
+      });
       $('ps-estimate').addEventListener('change', powerBoxes);
       $('ps-meter').addEventListener('change', powerBoxes);
       $('ps-flow').addEventListener('change', powerBoxes);
