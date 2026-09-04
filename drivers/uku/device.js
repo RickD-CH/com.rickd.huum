@@ -323,8 +323,29 @@ class HuumDevice extends Homey.Device {
   /** Keeps the device-visible "scheduled start" indicator in sync with the store. */
   async _syncBookingCapability() {
     const b = this.getBooking();
-    const text = b ? new Date(b.at).toLocaleString() : this.homey.__('labels.not_scheduled');
+    const text = b ? this._formatDeviceDateTime(b.at) : this.homey.__('labels.not_scheduled');
     await this._setCapabilitySafe('huum_booking_status', text);
+  }
+
+  /**
+   * Node on Homey ships without full ICU/locale data, so a plain
+   * toLocaleString() silently renders in UTC and en-US regardless of the
+   * Homey's own timezone/language (confirmed live: a Europe/Zurich booking
+   * showed up two hours early, in m/d/y AM/PM). This asks the Homey what
+   * timezone it's actually configured for and formats explicitly against
+   * it, in an unambiguous 24h day-first format.
+   */
+  _formatDeviceDateTime(ms) {
+    let timeZone;
+    try { timeZone = this.homey.clock.getTimezone(); } catch (err) { /* clock manager unavailable — fall through */ }
+    try {
+      const parts = new Intl.DateTimeFormat('en-GB', {
+        timeZone, day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+      }).formatToParts(new Date(ms)).reduce((o, p) => { o[p.type] = p.value; return o; }, {});
+      return `${parts.day}.${parts.month}.${parts.year} ${parts.hour}:${parts.minute}`;
+    } catch (err) {
+      return new Date(ms).toLocaleString(); // best-effort fallback if Intl/timeZone data is missing
+    }
   }
 
   _clearBookingTimer() {
@@ -1165,7 +1186,7 @@ class HuumDevice extends Homey.Device {
     const lastSession = this.getStoreValue('lastSession');
     if (!lastSession) return this.homey.__('labels.no_sessions_yet');
 
-    const dateStr = new Date(lastSession.startedAt).toLocaleString();
+    const dateStr = this._formatDeviceDateTime(lastSession.startedAt);
     const durationStr = this._formatDuration(lastSession.durationMinutes);
     const humidityStr = lastSession.humidity > 0 ? `, ${lastSession.humidity}%` : '';
     const temperatureStr = typeof lastSession.temperature === 'number' ? `${lastSession.temperature}°C` : '?';

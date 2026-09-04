@@ -44,6 +44,7 @@ function makeHomeyApi() {
         trigger: async (device, tokens) => { triggeredCards.push({ id, tokens }); },
       }),
     },
+    clock: { getTimezone: () => 'Europe/Zurich' },
     __triggeredCards: triggeredCards,
     __notifications: notifications,
     notifications: {
@@ -330,6 +331,23 @@ async function testRemoteStateTriggersOnEdge() {
   console.log('OK: remote_control_blocked / _available fire only on the state edge');
 }
 
+async function testFormatDeviceDateTimeUsesTheHomeyTimezone() {
+  const device = makeDevice({ capabilities: {} });
+  // A fixed instant, well clear of any DST edge case: 2026-06-15 10:30 UTC.
+  const ms = Date.UTC(2026, 5, 15, 10, 30);
+
+  device.homey.clock = { getTimezone: () => 'Europe/Zurich' }; // UTC+2 in June (CEST)
+  assert.strictEqual(device._formatDeviceDateTime(ms), '15.06.2026 12:30', '24h, day-first, shifted into the Homey\'s real timezone');
+
+  device.homey.clock = { getTimezone: () => 'America/New_York' }; // UTC-4 in June (EDT)
+  assert.strictEqual(device._formatDeviceDateTime(ms), '15.06.2026 06:30');
+
+  // No clock manager (or it throws) — must not crash, degrades gracefully.
+  device.homey.clock = undefined;
+  assert.strictEqual(typeof device._formatDeviceDateTime(ms), 'string');
+  console.log('OK: _formatDeviceDateTime renders in the Homey\'s configured timezone, not the Node runtime default (was UTC/en-US)');
+}
+
 async function testGetConfigExposesRemoteBlocked() {
   const device = makeDevice({ capabilities: {} });
   device._lastStatus = { remoteSafetyState: 'safe' };
@@ -522,10 +540,18 @@ async function testScheduledStartFires() {
   const at = Date.now() + 60000;
   await device.setBooking({ at, temperature: 70, humidity: 20 });
   assert.strictEqual(device.getBooking().at, at, 'booking stored');
+  // Independently computed, not via the device's own formatter — a real
+  // check that it renders in the Homey's timezone (Europe/Zurich, mocked
+  // above), 24h day-first, not the Node default (which is UTC/en-US on
+  // Homey and was the actual bug: a Zurich time showed up 2h early in
+  // m/d/y AM/PM).
+  const wanted = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Zurich', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(new Date(at)).reduce((o, p) => { o[p.type] = p.value; return o; }, {});
   assert.strictEqual(
     device.getCapabilityValue('huum_booking_status'),
-    new Date(at).toLocaleString(),
-    'the device tile shows when the scheduled start will fire',
+    `${wanted.day}.${wanted.month}.${wanted.year} ${wanted.hour}:${wanted.minute}`,
+    'the device tile shows when the scheduled start will fire, in the Homey\'s own timezone and 24h format',
   );
 
   await assert.rejects(() => device.setBooking({ at: Date.now() - 1000 }), /future/i, 'past start times are rejected');
@@ -696,6 +722,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testDoorSensorAbsentOverridesSafetyCheck();
   await testRemoteSafetyBlocksStartAndWarns();
   await testRemoteStateTriggersOnEdge();
+  await testFormatDeviceDateTimeUsesTheHomeyTimezone();
   await testGetConfigExposesRemoteBlocked();
   await testCurrentTemperatureChangedFiresOnEveryChange();
   await testDutyCycleLowersTheEstimateAtTemp();

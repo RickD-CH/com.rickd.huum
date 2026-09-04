@@ -26,5 +26,9 @@
   "0.7.6": {
     "en": "New device capability showing whether a scheduled start is active, and when.",
     "de": "Neue Geraete-Anzeige, ob ein geplanter Start aktiv ist, und wann."
+  },
+  "0.7.7": {
+    "en": "Fixed dates shown on the device (scheduled start, last session) using UTC/AM-PM instead of your Homey's own timezone.",
+    "de": "Am Geraet angezeigte Daten (geplanter Start, letzte Sitzung) nutzten UTC/AM-PM statt der Zeitzone deiner Homey - behoben."
   }
 }
