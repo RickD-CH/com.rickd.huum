@@ -475,6 +475,42 @@ async function testTargetsNotOverwrittenWhileOff() {
   console.log('OK: target temp/humidity hold the owner\'s intent while off, sync from HUUM while heating');
 }
 
+async function testScheduledStartFires() {
+  const device = makeDevice({
+    capabilities: { onoff: false, target_temperature: 80, huum_start_profile: 'manual' },
+  });
+  let started = null;
+  device.api = { turnOn: async (a) => { started = a; return {}; }, getStatus: async () => { throw new Error('no refresh'); } };
+  device._registerCapabilityListeners();
+
+  const at = Date.now() + 60000;
+  await device.setBooking({ at, temperature: 70, humidity: 20 });
+  assert.strictEqual(device.getBooking().at, at, 'booking stored');
+
+  await assert.rejects(() => device.setBooking({ at: Date.now() - 1000 }), /future/i, 'past start times are rejected');
+
+  const timer = device.homey.__timers.find((t) => t.ms > 0 && t.ms <= 60000);
+  assert.ok(timer, 'a booking timer was armed');
+  await device._fireBooking();
+
+  assert.deepStrictEqual(started, { temperature: 70, humidity: 20 }, 'scheduled start used the booked values');
+  assert.strictEqual(device.getBooking(), null, 'booking cleared once it fired');
+  assert.strictEqual(device.getCapabilityValue('onoff'), true);
+  console.log('OK: a scheduled start fires at its time with the booked temperature/humidity, then clears');
+}
+
+async function testStaleBookingIsDroppedNotFired() {
+  const device = makeDevice({ capabilities: { onoff: false, target_temperature: 80 } });
+  let called = false;
+  device.api = { turnOn: async () => { called = true; return {}; }, getStatus: async () => { throw new Error('x'); } };
+  // Simulate a booking whose time passed 45 min ago while the app was down.
+  device.__store.booking = { at: Date.now() - 45 * 60 * 1000, profile: null, temperature: 70 };
+  await device._fireBooking();
+  assert.strictEqual(called, false, 'a long-missed booking must not start the sauna');
+  assert.strictEqual(device.getBooking(), null, 'and is discarded');
+  console.log('OK: a scheduled start missed by >30 min is dropped, not fired late');
+}
+
 async function testStartProfilePickerFillsTheSliders() {
   const device = makeDevice({
     capabilities: { onoff: false, huum_start_profile: 'manual', target_temperature: 80, target_humidity: 0.2 },
@@ -517,6 +553,8 @@ async function testStartProfilePickerFillsTheSliders() {
   await testWaterCheckReminderFiresOnStart();
   await testTargetsNotOverwrittenWhileOff();
   await testStartProfilePickerFillsTheSliders();
+  await testScheduledStartFires();
+  await testStaleBookingIsDroppedNotFired();
   await testStartProfilePickerStartsWithThatProfile();
   await testHumidityCapabilityScales();
   console.log('\nAll device.js exception-handling tests passed.');

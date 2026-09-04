@@ -42,12 +42,13 @@
     .row .k { color: var(--muted); }
     .row .v { font-weight: 600; text-align: right; color: var(--fg); }
     label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 3px; }
-    input[type=text], input[type=number], select {
+    input[type=text], input[type=number], input[type=datetime-local], select {
       width: 100%; box-sizing: border-box; padding: 8px 10px; font-size: 14px;
       border: 1px solid var(--field-border) !important; border-radius: 8px;
       background: var(--field) !important; color: var(--fg) !important;
       -webkit-appearance: none; appearance: none;
     }
+    input[type=datetime-local]::-webkit-calendar-picker-indicator { filter: invert(.5); }
     #theme { width: auto; }
     .profile { border-top: 1px solid var(--border); padding-top: 10px; margin-top: 10px; }
     .profile:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
@@ -100,6 +101,36 @@
       <div class="btnrow">
         <button id="btn-refresh" type="button" class="ghost">↻ Refresh</button>
         <span class="hint" id="data-stamp"></span>
+      </div>
+
+      <h2 id="h-booking">Schedule</h2>
+      <div class="card">
+        <div id="booking-active" hidden>
+          <div class="row"><span class="k" id="l-bk-next">Next start</span><span class="v" id="bk-next-val"></span></div>
+          <div class="row"><span class="k" id="l-bk-with">Start with</span><span class="v" id="bk-with-val"></span></div>
+          <div class="btnrow">
+            <button id="edit-booking" type="button" class="ghost">Change</button>
+            <button id="cancel-booking" type="button" class="ghost">Cancel</button>
+          </div>
+        </div>
+        <div id="booking-form" hidden>
+          <label id="l-bk-when">Start time</label>
+          <input type="datetime-local" id="bk-when" />
+          <label id="l-bk-profile">Start with</label>
+          <select id="bk-profile"></select>
+          <div id="bk-manual" class="grid2">
+            <div><label id="l-bk-temp">Temperature (°C)</label><input type="number" id="bk-temp" min="40" max="110" step="1" /></div>
+            <div id="bk-hum-wrap"><label id="l-bk-hum">Humidity (%)</label><input type="number" id="bk-hum" min="0" max="90" step="5" /></div>
+          </div>
+          <label id="l-bk-stop">Auto-off after (hours, optional)</label>
+          <input type="number" id="bk-stop" min="0" max="12" step="0.5" />
+          <div class="btnrow">
+            <button id="save-booking" type="button" class="action">Schedule</button>
+            <button id="clear-booking-form" type="button" class="ghost" hidden>Back</button>
+            <span class="saved" id="saved-booking" hidden>Saved</span>
+            <span class="err" id="err-booking" hidden></span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -203,6 +234,11 @@
       picker: 'Sauna', tabs: ['Übersicht', 'Einstellungen', 'Statistik', 'Support'],
       info: 'Sauna', stats: 'Statistik', hAdv: 'Statusabruf', hProfiles: 'Profile', profileN: 'Profil',
       refresh: '↻ Aktualisieren', dataAt: 'Stand: ', dataLoading: 'lädt …',
+      hBooking: 'Planung', bkWhen: 'Startzeit', bkProfile: 'Starten mit', bkManual: 'Manuell',
+      bkTemp: 'Temperatur (°C)', bkHum: 'Feuchte (%)', bkStop: 'Auto-Aus nach (Std., optional)',
+      bkSchedule: 'Planen', bkBack: 'Zurück', bkChange: 'Ändern', bkCancel: 'Abbrechen',
+      bkNext: 'Nächster Start', bkWith: 'Start mit', bkAutoOff: 'Auto-Aus',
+      bkPast: 'Startzeit muss in der Zukunft liegen.',
       poll: 'Statusabruf beim Heizen (Sek.)', idle: 'Statusabruf im Standby (Sek.)',
       finish: 'Schwelle "bald fertig" (Min.)',
       hPower: 'Ofenleistung', hCosts: 'Kosten',
@@ -237,6 +273,11 @@
       picker: 'Sauna', tabs: ['Overview', 'Settings', 'Statistics', 'Support'],
       info: 'Sauna', stats: 'Statistics', hAdv: 'Polling', hProfiles: 'Profiles', profileN: 'Profile',
       refresh: '↻ Refresh', dataAt: 'As of: ', dataLoading: 'loading …',
+      hBooking: 'Schedule', bkWhen: 'Start time', bkProfile: 'Start with', bkManual: 'Manual',
+      bkTemp: 'Temperature (°C)', bkHum: 'Humidity (%)', bkStop: 'Auto-off after (hours, optional)',
+      bkSchedule: 'Schedule', bkBack: 'Back', bkChange: 'Change', bkCancel: 'Cancel',
+      bkNext: 'Next start', bkWith: 'Start with', bkAutoOff: 'auto-off',
+      bkPast: 'Pick a start time in the future.',
       poll: 'Status refresh while heating (sec)', idle: 'Status refresh while idle (sec)',
       finish: '"Finishing soon" threshold (min)',
       hPower: 'Heater power', hCosts: 'Costs',
@@ -350,6 +391,13 @@
       setTxt('h-info', T.info); setTxt('h-stats', T.stats);
       setTxt('h-adv', T.hAdv); setTxt('h-profiles', T.hProfiles);
       setTxt('btn-refresh', T.refresh); setTxt('data-stamp', T.dataLoading);
+      setTxt('h-booking', T.hBooking);
+      setTxt('l-bk-when', T.bkWhen); setTxt('l-bk-profile', T.bkProfile);
+      setTxt('l-bk-temp', T.bkTemp); setTxt('l-bk-hum', T.bkHum); setTxt('l-bk-stop', T.bkStop);
+      setTxt('save-booking', T.bkSchedule); setTxt('clear-booking-form', T.bkBack);
+      setTxt('saved-booking', T.saved);
+      setTxt('edit-booking', T.bkChange); setTxt('cancel-booking', T.bkCancel);
+      setTxt('l-bk-next', T.bkNext); setTxt('l-bk-with', T.bkWith);
       setTxt('l-poll', T.poll); setTxt('l-idle', T.idle); setTxt('l-finish', T.finish);
       setTxt('h-power', T.hPower); setTxt('h-costs', T.hCosts);
       setTxt('l-ps-estimate', T.psEstimate); setTxt('l-ps-meter', T.psMeter); setTxt('l-ps-flow', T.psFlow);
@@ -446,6 +494,73 @@
       $('electricityPrice').value = (cfg.costs && cfg.costs.electricityPrice) || 0;
     }
 
+    function pad2(n) { return (n < 10 ? '0' : '') + n; }
+    function toDatetimeLocal(d) {
+      return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate())
+        + 'T' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+    }
+
+    var bookingProfiles = [];
+    var bookingFormReady = false;
+    function renderBooking(cfg) {
+      bookingProfiles = (cfg && cfg.profiles) || [];
+      var sel = $('bk-profile');
+      if (sel.options.length !== bookingProfiles.length + 1) {
+        var keep = sel.value;
+        sel.innerHTML = '<option value="manual">' + esc(T.bkManual) + '</option>'
+          + bookingProfiles.map(function (p, i) {
+            return '<option value="' + p.id + '">' + esc(T.profileN + ' ' + (i + 1) + ' · ' + (p.name || '')) + '</option>';
+          }).join('');
+        sel.value = keep || 'manual';
+      }
+      $('bk-hum-wrap').style.display = (cfg && cfg.hasSteamer) ? '' : 'none';
+
+      var bk = cfg && cfg.booking;
+      if (bk && bk.at) {
+        setTxt('bk-next-val', toDatetimeLocal(new Date(bk.at)).replace('T', ', '));
+        var withTxt;
+        if (bk.profile) {
+          var idx = bookingProfiles.map(function (p) { return p.id; }).indexOf(bk.profile);
+          var p = bookingProfiles[idx] || {};
+          withTxt = T.profileN + ' ' + (idx + 1) + (p.name ? ' · ' + p.name : '');
+        } else {
+          withTxt = (bk.temperature != null ? bk.temperature + ' °C' : '–')
+            + (bk.humidity ? ' · ' + bk.humidity + ' %' : '');
+        }
+        if (bk.autoStopMinutes) withTxt += ' · ' + T.bkAutoOff + ' ' + (Math.round(bk.autoStopMinutes / 30) / 2) + ' h';
+        setTxt('bk-with-val', withTxt);
+        $('booking-active').hidden = false;
+        $('booking-form').hidden = true;
+        bookingFormReady = false; // re-init the form once this booking clears
+      } else if (!bookingEditing) {
+        $('booking-active').hidden = true;
+        $('booking-form').hidden = false;
+        // Only seed the fields the first time — don't wipe what the user is typing
+        // on every 10 s auto-refresh.
+        if (!bookingFormReady) { showBookingForm(null); }
+        else bookingManualBox();
+      }
+    }
+
+    function showBookingForm(bk) {
+      $('booking-active').hidden = true;
+      $('booking-form').hidden = false;
+      $('clear-booking-form').hidden = !bk;
+      $('err-booking').hidden = true;
+      var when = bk ? new Date(bk.at) : new Date(Date.now() + 3600000);
+      $('bk-when').value = toDatetimeLocal(when);
+      $('bk-profile').value = (bk && bk.profile) || 'manual';
+      $('bk-temp').value = (bk && bk.temperature != null) ? bk.temperature : 80;
+      $('bk-hum').value = (bk && bk.humidity != null) ? bk.humidity : 0;
+      $('bk-stop').value = (bk && bk.autoStopMinutes) ? (Math.round(bk.autoStopMinutes / 30) / 2) : '';
+      bookingManualBox();
+      bookingFormReady = true;
+    }
+
+    function bookingManualBox() {
+      $('bk-manual').style.display = ($('bk-profile').value === 'manual') ? 'grid' : 'none';
+    }
+
     function powerBoxes() {
       $('estimate-box').hidden = !$('ps-estimate').checked;
       $('meter-box').hidden = !$('ps-meter').checked;
@@ -477,9 +592,11 @@
       var p = s.config ? Promise.resolve(s.config) : api('GET', '/device/' + encodeURIComponent(id) + '/config');
       return p.then(function (cfg) {
         renderProfiles(cfg); renderAdvanced(cfg); renderPower(cfg); renderCosts(cfg);
+        if (!bookingEditing) renderBooking(cfg);
         return loadMeters(cfg.power.meterId);
       });
     }
+    var bookingEditing = false;
 
     function fmtClock(d) {
       function p(n) { return (n < 10 ? '0' : '') + n; }
@@ -507,6 +624,7 @@
         var s = saunas[0];
         for (var i = 0; i < saunas.length; i++) if (saunas[i].id === currentId) s = saunas[i];
         renderInfo(s); renderStats(s);
+        if (s.config && !bookingEditing) renderBooking(s.config);
         if (currentId !== s.id) return selectSauna(s.id);
       }).catch(function () { /* keep last render */ });
     }
@@ -542,6 +660,43 @@
       $('ps-estimate').addEventListener('change', powerBoxes);
       $('ps-meter').addEventListener('change', powerBoxes);
       $('ps-flow').addEventListener('change', powerBoxes);
+
+      $('bk-profile').addEventListener('change', bookingManualBox);
+      $('edit-booking').addEventListener('click', function () {
+        bookingEditing = true;
+        var s = null;
+        for (var i = 0; i < saunas.length; i++) if (saunas[i].id === currentId) s = saunas[i];
+        showBookingForm(s && s.config && s.config.booking);
+      });
+      $('clear-booking-form').addEventListener('click', function () {
+        bookingEditing = false;
+        var s = null;
+        for (var i = 0; i < saunas.length; i++) if (saunas[i].id === currentId) s = saunas[i];
+        renderBooking(s && s.config);
+      });
+      $('cancel-booking').addEventListener('click', function () {
+        bookingEditing = false;
+        saveConfig({ clearBooking: true }, 'saved-booking', renderBooking);
+      });
+      $('save-booking').addEventListener('click', function () {
+        var whenVal = $('bk-when').value;
+        var at = whenVal ? new Date(whenVal).getTime() : NaN;
+        $('err-booking').hidden = true;
+        if (!at || Number.isNaN(at) || at <= Date.now() + 30000) {
+          $('err-booking').textContent = T.bkPast; $('err-booking').hidden = false; return;
+        }
+        var prof = $('bk-profile').value;
+        var hours = Number($('bk-stop').value) || 0;
+        var body = { booking: {
+          at: at,
+          profile: prof === 'manual' ? null : prof,
+          temperature: prof === 'manual' ? (Number($('bk-temp').value) || null) : null,
+          humidity: prof === 'manual' ? (Number($('bk-hum').value) || null) : null,
+          autoStopMinutes: hours > 0 ? Math.round(hours * 60) : null,
+        } };
+        bookingEditing = false;
+        saveConfig(body, 'saved-booking', renderBooking);
+      });
 
       $('reset-profiles').addEventListener('click', function () {
         saveConfig({ resetProfiles: true }, 'saved-profiles', renderProfiles);

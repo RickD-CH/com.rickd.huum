@@ -96,6 +96,21 @@
       "uiComponent": "sensor",
       "insights": true
     },
+    "huum_refresh": {
+      "type": "boolean",
+      "title": {
+        "en": "Refresh now",
+        "de": "Jetzt aktualisieren"
+      },
+      "desc": {
+        "en": "Pull a fresh reading from HUUM right now instead of waiting for the next poll.",
+        "de": "Sofort einen frischen Wert von HUUM holen, statt auf den nächsten Abruf zu warten."
+      },
+      "getable": false,
+      "setable": true,
+      "uiComponent": "button",
+      "uiQuickAction": false
+    },
     "huum_start_profile": {
       "type": "enum",
       "title": {
@@ -421,6 +436,7 @@
         "target_humidity",
         "measure_humidity",
         "huum_start_profile",
+        "huum_refresh",
         "measure_power",
         "huum_time_remaining",
         "huum_session_count",

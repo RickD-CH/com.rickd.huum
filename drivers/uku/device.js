@@ -77,10 +77,13 @@ class HuumDevice extends Homey.Device {
     }
 
     this._scheduleNextPoll();
+    this._scheduleBooking();
   }
 
   async onUninit() {
     this._clearPoll();
+    this._clearBookingTimer();
+    if (this._bookingAutoStop) this.homey.clearTimeout(this._bookingAutoStop);
     await this._unbindPowerMeter();
   }
 
@@ -186,6 +189,7 @@ class HuumDevice extends Homey.Device {
       costs: {
         electricityPrice: this._cfg('electricityPrice', 0),
       },
+      booking: this.getBooking(),
       stats: {
         sessionCount: this.getStoreValue('sessionCount') || 0,
         totalHeatingMinutes: this.getStoreValue('totalHeatingMinutes') || 0,
@@ -200,8 +204,10 @@ class HuumDevice extends Homey.Device {
 
   /** Called by api.js when the app settings page saves. */
   async setConfig({
-    profiles, advanced, power, costs, resetProfiles,
+    profiles, advanced, power, costs, resetProfiles, booking, clearBooking,
   } = {}) {
+    if (clearBooking) await this.clearBooking();
+    else if (booking) await this.setBooking(booking);
     const patch = {};
     if (resetProfiles) {
       Object.assign(patch, DEFAULT_PROFILES);
@@ -254,6 +260,115 @@ class HuumDevice extends Homey.Device {
     await this._applyEnergySetting();
   }
 
+  // ---- Scheduled start ("Buchung") -----------------------------------------
+
+  /** The single pending scheduled start, or null. */
+  getBooking() {
+    const b = this.getStoreValue('booking');
+    return (b && typeof b.at === 'number') ? b : null;
+  }
+
+  /** Save (or with a falsy arg, clear) the scheduled start. */
+  async setBooking(booking) {
+    if (!booking || !booking.at) {
+      await this.clearBooking();
+      return null;
+    }
+    const at = Number(booking.at);
+    if (!Number.isFinite(at) || at <= Date.now()) {
+      throw new Error(this.homey.__('errors.booking_past'));
+    }
+    const num = (v) => (v != null && !Number.isNaN(Number(v)) ? Math.round(Number(v)) : null);
+    const clean = {
+      at,
+      profile: /^profile[123]$/.test(booking.profile || '') ? booking.profile : null,
+      temperature: num(booking.temperature),
+      humidity: num(booking.humidity),
+      autoStopMinutes: booking.autoStopMinutes ? Math.max(1, num(booking.autoStopMinutes)) : null,
+      createdAt: Date.now(),
+    };
+    await this.setStoreValue('booking', clean);
+    this._scheduleBooking();
+    return this.getBooking();
+  }
+
+  async clearBooking() {
+    this._clearBookingTimer();
+    await this.setStoreValue('booking', null).catch(this.error);
+  }
+
+  _clearBookingTimer() {
+    if (this._bookingTimeout) { this.homey.clearTimeout(this._bookingTimeout); this._bookingTimeout = null; }
+  }
+
+  _scheduleBooking() {
+    this._clearBookingTimer();
+    const b = this.getBooking();
+    if (!b) return;
+    const delay = b.at - Date.now();
+    if (delay <= 0) {
+      this._fireBooking().catch((err) => this.error('Booking fire failed:', err.message));
+      return;
+    }
+    // this.homey.setTimeout caps around 24.8 days — re-arm past that.
+    const MAX = 20 * 24 * 60 * 60 * 1000;
+    const capped = delay > MAX;
+    this._bookingTimeout = this.homey.setTimeout(() => {
+      if (capped) this._scheduleBooking();
+      else this._fireBooking().catch((err) => this.error('Booking fire failed:', err.message));
+    }, Math.min(delay, MAX));
+  }
+
+  /** Cheap safety net in case a scheduled timer was lost across a restart. */
+  _checkBookingDue() {
+    const b = this.getBooking();
+    if (b && b.at <= Date.now() && !this._firingBooking) {
+      this._fireBooking().catch((err) => this.error('Booking fire failed:', err.message));
+    }
+  }
+
+  async _fireBooking() {
+    const b = this.getBooking();
+    this._clearBookingTimer();
+    if (!b || this._firingBooking) return;
+    this._firingBooking = true;
+    try {
+      await this.setStoreValue('booking', null).catch(this.error);
+      // Missed by more than 30 min (app was down) — don't start a sauna
+      // nobody is standing next to.
+      if (Date.now() - b.at > 30 * 60 * 1000) return;
+
+      if (b.profile && typeof this._cfg(`${b.profile}Temperature`, null) === 'number') {
+        await this.startWithProfile(b.profile);
+      } else {
+        const temp = typeof b.temperature === 'number'
+          ? b.temperature : (this.getCapabilityValue('target_temperature') || 80);
+        const hum = typeof b.humidity === 'number' ? b.humidity : this._getTargetHumidityPercent();
+        await this._start(temp, hum);
+        await this._maybeWaterCheckReminder();
+      }
+      await this._setCapabilitySafe('onoff', true);
+
+      if (b.autoStopMinutes) {
+        this._bookingAutoStop = this.homey.setTimeout(() => {
+          this.triggerCapabilityListener('onoff', false)
+            .catch((err) => this.error('Booking auto-stop failed:', err.message));
+        }, b.autoStopMinutes * 60 * 1000);
+      }
+      await this.homey.notifications.createNotification({
+        excerpt: this.homey.__('notifications.booking_started', { name: this.getName() }),
+      }).catch(() => {});
+    } catch (err) {
+      this.error('Scheduled start failed:', err.message);
+      await this.homey.notifications.createNotification({
+        excerpt: this.homey.__('notifications.booking_failed', { name: this.getName(), error: err.message }),
+      }).catch(() => {});
+    } finally {
+      this._firingBooking = false;
+      await this._syncStatus().catch((err) => this.error('Post-booking status refresh failed:', err.message));
+    }
+  }
+
   /**
    * Adaptive polling: check in often while the heater is actually heating,
    * much less often while it's off/idle, to go easy on the HUUM cloud.
@@ -264,7 +379,13 @@ class HuumDevice extends Homey.Device {
     this._clearPoll();
     const activeSeconds = this._cfg('pollInterval', DEFAULT_POLL_INTERVAL_S);
     const idleSeconds = this._cfg('idlePollInterval', DEFAULT_IDLE_POLL_INTERVAL_S);
-    const seconds = (this._lastStatus && this._lastStatus.isHeating) ? activeSeconds : idleSeconds;
+    const s = this._lastStatus || {};
+    // Poll at the active cadence not just while heating, but also while the
+    // owner is likely standing at the sauna — door open or a remote-start
+    // block they're about to clear at the panel — so "I just shut the door"
+    // shows up in seconds, not after the 5-minute idle interval.
+    const attentive = s.isHeating || s.doorClosed === false || HuumDevice._isBlocked(s);
+    const seconds = attentive ? activeSeconds : idleSeconds;
 
     this._pollTimeout = this.homey.setTimeout(() => {
       this._syncStatus().catch((err) => this.error('Status sync failed:', err.message));
@@ -416,6 +537,10 @@ class HuumDevice extends Homey.Device {
         }
         await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
       });
+    }
+
+    if (this.hasCapability('huum_refresh')) {
+      this.registerCapabilityListener('huum_refresh', async () => { await this.refreshNow(); });
     }
 
     if (this.hasCapability('huum_start_profile')) {
@@ -576,6 +701,7 @@ class HuumDevice extends Homey.Device {
   }
 
   async _syncStatus() {
+    this._checkBookingDue();
     let status;
     try {
       status = await this.api.getStatus();
@@ -624,6 +750,7 @@ class HuumDevice extends Homey.Device {
       ['alarm_contact', doorSensor],
       ['measure_power', this._hasLiveMeasurePower()],
       ['huum_start_profile', true],
+      ['huum_refresh', true],
       // Split from the plain capability so Homey stops pairing it with
       // target_temperature into a "heating to X" thermostat dial.
       ['measure_temperature.room', true],

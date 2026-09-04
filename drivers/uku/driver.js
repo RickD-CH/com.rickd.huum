@@ -55,6 +55,7 @@ class HuumDriver extends Homey.Driver {
         'target_temperature',
         'measure_temperature.room',
         'huum_start_profile',
+        'huum_refresh',
         'huum_time_remaining',
         'huum_session_count',
         'alarm_contact',

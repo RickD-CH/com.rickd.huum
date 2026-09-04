@@ -8,7 +8,8 @@
     "missing_credentials": "Keine HUUM-Anmeldedaten für dieses Gerät gefunden. Bitte mit E-Mail-Adresse und Passwort reparieren.",
     "humidity_exceeds_max": "{{humidity}}% Luftfeuchtigkeit ist bei {{temperature}}°C zu hoch — der Verdampfer erlaubt bei dieser Temperatur höchstens {{maxHumidity}}%.",
     "profile_not_configured": "Für dieses Profil ist noch keine Temperatur eingestellt — öffne die App-Einstellungsseite, um es zu konfigurieren, oder nutze zuerst \"Aktuelle Einstellungen als Profil speichern\".",
-    "remote_disabled": "Die Fernsteuerung ist deaktiviert. Bestätige zuerst die Sicherheit am UKU-Bedienfeld und versuche es dann erneut."
+    "remote_disabled": "Die Fernsteuerung ist deaktiviert. Bestätige zuerst die Sicherheit am UKU-Bedienfeld und versuche es dann erneut.",
+    "booking_past": "Wähle eine Startzeit in der Zukunft."
   },
   "warnings": {
     "remote_disabled": "Fernsteuerung deaktiviert — bestätige die Sicherheit am UKU-Bedienfeld, um die Sauna aus Homey zu starten.",
@@ -17,7 +18,9 @@
   "notifications": {
     "water_alarm_title": "{{name}}: Verdampfer braucht Wasser.",
     "water_alarm_body": "Kein Wasser im Verdampfer, Verdampfer darf nicht starten",
-    "water_check_reminder": "{{name}}: Prüfe das Verdampferwasser, bevor die Sauna aufheizt."
+    "water_check_reminder": "{{name}}: Prüfe das Verdampferwasser, bevor die Sauna aufheizt.",
+    "booking_started": "{{name}}: Die geplante Sauna-Sitzung wurde gestartet.",
+    "booking_failed": "{{name}}: Der geplante Start ist fehlgeschlagen — {{error}}"
   },
   "labels": {
     "yes": "Ja",
