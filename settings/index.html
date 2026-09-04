@@ -223,7 +223,7 @@
         <p id="s-about">Independent, unofficial app for HUUM UKU saunas — not affiliated with HUUM.</p>
         <div class="btnrow">
           <button id="btn-donate" type="button" class="action">☕ Donate (PayPal)</button>
-          <button id="btn-github" type="button" class="ghost">Report an issue</button>
+          <button id="btn-forum" type="button" class="ghost">Community forum</button>
         </div>
       </div>
     </div>
@@ -261,7 +261,7 @@
       meterNoPerm: 'Geräteliste nicht verfügbar (fehlende Berechtigung). Nutze die kW-Schätzung.',
       save: 'Speichern', saved: 'Gespeichert', resetProfiles: 'Auf Standard zurücksetzen', noSteamer: 'kein Verdampfer',
       about: 'Unabhängige, inoffizielle App für HUUM-UKU-Saunas — nicht mit HUUM verbunden.',
-      donate: '☕ Unterstützen (PayPal)', github: 'Fehler melden',
+      donate: '☕ Unterstützen (PayPal)', forum: 'Forum',
       empty: 'Noch keine Sauna gekoppelt. Füge zuerst eine unter "Geräte" hinzu.',
       name: 'Name', temp: 'Temperatur (°C)', hum: 'Feuchte (%)',
       fAvailable: 'Verfügbar', fStatus: 'Status', fHeating: 'Heizt', fCurTemp: 'Aktuelle Temperatur',
@@ -300,7 +300,7 @@
       meterNoPerm: 'Device list unavailable (missing permission). Use the kW estimate.',
       save: 'Save', saved: 'Saved', resetProfiles: 'Reset to defaults', noSteamer: 'no steamer',
       about: 'Independent, unofficial app for HUUM UKU saunas — not affiliated with HUUM.',
-      donate: '☕ Donate (PayPal)', github: 'Report an issue',
+      donate: '☕ Donate (PayPal)', forum: 'Community forum',
       empty: 'No sauna paired yet. Add one from Devices first.',
       name: 'Name', temp: 'Temperature (°C)', hum: 'Humidity (%)',
       fAvailable: 'Available', fStatus: 'Status', fHeating: 'Heating', fCurTemp: 'Current temperature',
@@ -413,7 +413,7 @@
       setTxt('l-kw', T.kw); setTxt('l-price', T.price); setTxt('price-hint', T.priceHint);
       setTxt('l-duty', T.duty); setTxt('duty-hint', T.dutyHint); setTxt('flow-hint', T.flowHint);
       setTxt('meter-hint', T.meterHint);
-      setTxt('s-about', T.about); setTxt('btn-donate', T.donate); setTxt('btn-github', T.github);
+      setTxt('s-about', T.about); setTxt('btn-donate', T.donate); setTxt('btn-forum', T.forum);
       setTxt('empty-text', T.empty); setTxt('reset-profiles', T.resetProfiles);
       ['save-profiles', 'save-advanced', 'save-power', 'save-costs'].forEach(function (b) { setTxt(b, T.save); });
       ['saved-profiles', 'saved-advanced', 'saved-power', 'saved-costs'].forEach(function (s) { setTxt(s, T.saved); });
@@ -763,7 +763,8 @@
         saveConfig({ adoptMeterTotal: true }, 'saved-adopt', function (cfg) { renderStats({ stats: cfg.stats }); });
       });
       $('btn-donate').addEventListener('click', function () { try { HomeyRef.openURL('https://paypal.me/RickDch'); } catch (x) {} });
-      $('btn-github').addEventListener('click', function () { try { HomeyRef.openURL('https://github.com/RickD-CH/com.rickd.huum/issues'); } catch (x) {} });
+      // TODO: replace with the real thread URL once the forum post is live.
+      $('btn-forum').addEventListener('click', function () { try { HomeyRef.openURL('https://community.homey.app/t/REPLACE-WITH-THREAD-SLUG'); } catch (x) {} });
     }
 
     function onHomeyReady(homey) {
