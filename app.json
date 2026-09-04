@@ -500,8 +500,8 @@
         },
         "alarm_generic": {
           "title": {
-            "en": "Emergency stop / problem",
-            "de": "Notaus / Problem"
+            "en": "Safety cut-out / fault",
+            "de": "Sicherheitsabschaltung / Störung"
           }
         },
         "onoff.light": {

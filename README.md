@@ -109,8 +109,12 @@ test/                     npm test
 
 Independent, unofficial app by a HUUM owner — **not affiliated with, endorsed by
 or supported by HUUM OÜ**. "HUUM" and "UKU" are used only to describe
-compatibility. The disclaimer is in `README.txt` / `README.de.txt` (the App
-Store description).
+compatibility.
+
+**For private home use only** — not tested or certified for commercial or
+public sauna installations. Use at your own risk; follow your sauna's and
+heater's own safety instructions. The same disclaimer is in `README.txt` /
+`README.de.txt` (the App Store description).
 
 ## Credits
 
