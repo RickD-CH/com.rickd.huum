@@ -77,8 +77,8 @@ async function testPostActionRefreshFailureDoesNotRejectListener() {
     capabilities: {
       onoff: false,
       target_temperature: 80,
-      target_humidity: 0.3,
-      measure_temperature: 40,
+      target_humidity: 30,
+      'measure_temperature.room': 40,
       measure_humidity: 20,
       alarm_contact: false,
       alarm_water: false,
@@ -110,7 +110,7 @@ async function testPostActionRefreshFailureDoesNotRejectListener() {
 
 async function testDoorOpenErrorStillRejectsWithTranslatedMessage() {
   const device = makeDevice({
-    capabilities: { onoff: false, target_temperature: 80, target_humidity: 0.3 },
+    capabilities: { onoff: false, target_temperature: 80, target_humidity: 30 },
   });
   device.api = {
     turnOn: async () => { throw new HuumSafetyError(); },
@@ -230,7 +230,7 @@ async function testSessionTrackingIgnoresEndWithNoKnownStart() {
 
 async function testSaveAndStartWithProfile() {
   const device = makeDevice({
-    capabilities: { target_temperature: 88, target_humidity: 0.2, onoff: true },
+    capabilities: { target_temperature: 88, target_humidity: 20, onoff: true },
   });
 
   await device.saveProfile('profile1');
@@ -327,7 +327,7 @@ async function testRemoteStateTriggersOnEdge() {
 
 async function testDutyCycleLowersTheEstimateAtTemp() {
   const device = makeDevice({
-    capabilities: { measure_temperature: 88, target_temperature: 90 },
+    capabilities: { 'measure_temperature.room': 88, target_temperature: 90 },
   });
   device.__store.heaterPowerKw = 6;
   device.__store.heaterDutyCycle = 50;
@@ -335,7 +335,7 @@ async function testDutyCycleLowersTheEstimateAtTemp() {
   // measure (88) >= target (90) - 5 -> "at temperature" -> duty applies
   assert.strictEqual(device._currentPowerW(), 3000, 'at temp: 6 kW * 50%');
 
-  device.__capabilities.set('measure_temperature', 40); // heating up
+  device.__capabilities.set('measure_temperature.room', 40); // heating up
   assert.strictEqual(device._currentPowerW(), 6000, 'heating up: full power');
   console.log('OK: the kW estimate is duty-cycled once the sauna is at temperature');
 }
@@ -402,7 +402,7 @@ async function testWaterAlarmIgnoresZeroSteamerError() {
 
 async function testWaterCheckReminderFiresOnStart() {
   const device = makeDevice({
-    capabilities: { onoff: false, target_temperature: 80, target_humidity: 0.3 },
+    capabilities: { onoff: false, target_temperature: 80, target_humidity: 30 },
   });
   device.__settings = { waterCheckReminder: true };
   device.api = { turnOn: async () => ({}), getStatus: async () => { throw new Error('no refresh in test'); } };
@@ -413,6 +413,41 @@ async function testWaterCheckReminderFiresOnStart() {
   const note = device.homey.__notifications.find((n) => /check the steamer water/i.test(n.excerpt));
   assert.ok(note, 'turning the sauna on posts the water-check reminder notification');
   console.log('OK: the water-check reminder fires once when the sauna is switched on');
+}
+
+async function testStartProfilePickerStartsWithThatProfile() {
+  const device = makeDevice({
+    capabilities: { onoff: false, huum_start_profile: 'profile2', target_humidity: 0 },
+  });
+  device.__store.profile2Temperature = 60;
+  device.__store.profile2Humidity = 45;
+
+  let captured = null;
+  device.api = { turnOn: async (a) => { captured = a; return {}; }, getStatus: async () => { throw new Error('no refresh'); } };
+  device._registerCapabilityListeners();
+
+  await device.triggerCapabilityListener('onoff', true);
+  assert.deepStrictEqual(captured, { temperature: 60, humidity: 45 }, 'onoff uses the picked start profile');
+
+  // "manual" (or an unconfigured profile) falls back to the current setpoint.
+  device.__capabilities.set('huum_start_profile', 'manual');
+  device.__capabilities.set('target_temperature', 95);
+  device.__capabilities.set('onoff', false);
+  captured = null;
+  await device.triggerCapabilityListener('onoff', true);
+  assert.strictEqual(captured.temperature, 95, 'manual -> current target temperature');
+  console.log('OK: the device start-profile picker decides what switching on starts with');
+}
+
+async function testHumidityCapabilityUsesPercentScale() {
+  const device = makeDevice({ capabilities: { target_humidity: 0, measure_humidity: 0 } });
+  await device._applyStatus({
+    isHeating: false, temperature: 40, targetTemperature: 80,
+    humidity: 38, targetHumidity: 45, doorClosed: true,
+  });
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 45, 'stored as 45, not 0.45');
+  assert.strictEqual(device.getCapabilityValue('measure_humidity'), 38);
+  console.log('OK: humidity capabilities use Homey\'s 0-100 percent scale');
 }
 
 (async () => {
@@ -436,6 +471,8 @@ async function testWaterCheckReminderFiresOnStart() {
   await testSessionEnergyAndCost();
   await testWaterAlarmIgnoresZeroSteamerError();
   await testWaterCheckReminderFiresOnStart();
+  await testStartProfilePickerStartsWithThatProfile();
+  await testHumidityCapabilityUsesPercentScale();
   console.log('\nAll device.js exception-handling tests passed.');
 })().catch((err) => {
   console.error('TEST FAILED:', err);

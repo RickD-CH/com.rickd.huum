@@ -53,7 +53,8 @@ class HuumDriver extends Homey.Driver {
       const capabilities = [
         'onoff',
         'target_temperature',
-        'measure_temperature',
+        'measure_temperature.room',
+        'huum_start_profile',
         'huum_time_remaining',
         'huum_session_count',
         'alarm_contact',

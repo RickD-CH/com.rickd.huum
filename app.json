@@ -81,6 +81,26 @@
       "setable": false,
       "uiComponent": "sensor",
       "insights": true
+    },
+    "huum_start_profile": {
+      "type": "enum",
+      "title": {
+        "en": "Start with",
+        "de": "Starten mit"
+      },
+      "desc": {
+        "en": "Which profile to use when the sauna is switched on from the device.",
+        "de": "Welches Profil beim Einschalten am Gerät verwendet wird."
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "picker",
+      "values": [
+        { "id": "manual", "title": { "en": "Last settings", "de": "Letzte Einstellung" } },
+        { "id": "profile1", "title": { "en": "Profile 1", "de": "Profil 1" } },
+        { "id": "profile2", "title": { "en": "Profile 2", "de": "Profil 2" } },
+        { "id": "profile3", "title": { "en": "Profile 3", "de": "Profil 3" } }
+      ]
     }
   },
   "flow": {
@@ -383,9 +403,10 @@
       "capabilities": [
         "onoff",
         "target_temperature",
-        "measure_temperature",
+        "measure_temperature.room",
         "target_humidity",
         "measure_humidity",
+        "huum_start_profile",
         "measure_power",
         "huum_time_remaining",
         "huum_session_count",
@@ -399,9 +420,13 @@
           "max": 110,
           "step": 1,
           "decimals": 0,
-          "uiComponent": "slider"
+          "uiComponent": "slider",
+          "title": {
+            "en": "Target temperature",
+            "de": "Zieltemperatur"
+          }
         },
-        "measure_temperature": {
+        "measure_temperature.room": {
           "uiComponent": "sensor",
           "title": {
             "en": "Current temperature",
@@ -416,8 +441,21 @@
         },
         "target_humidity": {
           "min": 0,
-          "max": 0.9,
-          "step": 0.01
+          "max": 95,
+          "step": 5,
+          "decimals": 0,
+          "uiComponent": "slider",
+          "title": {
+            "en": "Target humidity",
+            "de": "Zielfeuchte"
+          }
+        },
+        "measure_humidity": {
+          "decimals": 0,
+          "title": {
+            "en": "Current humidity",
+            "de": "Aktuelle Feuchte"
+          }
         },
         "alarm_contact": {
           "title": {

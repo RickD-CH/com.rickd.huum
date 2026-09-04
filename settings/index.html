@@ -88,10 +88,8 @@
   <div id="content" hidden>
     <nav class="tabs">
       <button class="tab active" data-tab="overview" id="t-overview">Overview</button>
+      <button class="tab" data-tab="settings" id="t-settings">Settings</button>
       <button class="tab" data-tab="stats" id="t-stats">Statistics</button>
-      <button class="tab" data-tab="profiles" id="t-profiles">Profiles</button>
-      <button class="tab" data-tab="advanced" id="t-advanced">Advanced</button>
-      <button class="tab" data-tab="energy" id="t-energy">Energy</button>
       <button class="tab" data-tab="support" id="t-support">Support</button>
     </nav>
 
@@ -104,23 +102,8 @@
       </div>
     </div>
 
-    <div class="panel" id="panel-stats">
-      <h2 id="h-stats">Statistics</h2>
-      <div class="card" id="stats"></div>
-    </div>
-
-    <div class="panel" id="panel-profiles">
-      <div class="card">
-        <div id="profiles"></div>
-        <div class="btnrow">
-          <button id="save-profiles" type="button" class="action">Save</button>
-          <button id="reset-profiles" type="button" class="ghost">Reset to defaults</button>
-          <span class="saved" id="saved-profiles" hidden>Saved</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="panel" id="panel-advanced">
+    <div class="panel" id="panel-settings">
+      <h2 id="h-adv">Polling</h2>
       <div class="card">
         <label id="l-poll">Status refresh while heating (sec)</label>
         <input type="number" id="pollInterval" min="10" max="300" step="5" />
@@ -133,9 +116,22 @@
           <span class="saved" id="saved-advanced" hidden>Saved</span>
         </div>
       </div>
+
+      <h2 id="h-profiles">Profiles</h2>
+      <div class="card">
+        <div id="profiles"></div>
+        <div class="btnrow">
+          <button id="save-profiles" type="button" class="action">Save</button>
+          <button id="reset-profiles" type="button" class="ghost">Reset to defaults</button>
+          <span class="saved" id="saved-profiles" hidden>Saved</span>
+        </div>
+      </div>
     </div>
 
-    <div class="panel" id="panel-energy">
+    <div class="panel" id="panel-stats">
+      <h2 id="h-stats">Statistics</h2>
+      <div class="card" id="stats"></div>
+
       <h2 id="h-power">Heater power</h2>
       <div class="card">
         <div class="radio">
@@ -203,8 +199,8 @@
   <script type="text/javascript">
     var DE = (navigator.language || 'en').toLowerCase().indexOf('de') === 0;
     var T = DE ? {
-      picker: 'Sauna', tabs: ['Übersicht', 'Statistik', 'Profile', 'Erweitert', 'Energie', 'Support'],
-      info: 'Sauna', stats: 'Statistik',
+      picker: 'Sauna', tabs: ['Übersicht', 'Einstellungen', 'Statistik', 'Support'],
+      info: 'Sauna', stats: 'Statistik', hAdv: 'Statusabruf', hProfiles: 'Profile',
       refresh: '↻ Aktualisieren', dataAt: 'Stand: ', dataLoading: 'lädt …',
       poll: 'Statusabruf beim Heizen (Sek.)', idle: 'Statusabruf im Standby (Sek.)',
       finish: 'Schwelle "bald fertig" (Min.)',
@@ -231,12 +227,14 @@
       fChildLock: 'Kindersicherung', fRemote: 'Fernsicherheitsstatus',
       fPayment: 'Abo gültig bis', fLimits: 'Gemeldete Grenzen',
       sSessions: 'Sitzungen', sTotal: 'Gesamte Heizzeit', sTotalKwh: 'Gesamt-Verbrauch',
-      sTotalCost: 'Gesamt-Kosten', sLast: 'Letzte Sitzung',
+      sTotalCost: 'Gesamt-Kosten', sAvgKwh: 'Ø Verbrauch/Sitzung',
+      sLastWhen: 'Letzte Sitzung', sLastTemp: 'Letzte – Temp./Feuchte',
+      sLastKwh: 'Letzte – Verbrauch', sLastCost: 'Letzte – Kosten',
       yes: 'Ja', no: 'Nein', none: '–',
       themeAuto: 'Automatisch', themeLight: 'Hell', themeDark: 'Dunkel',
     } : {
-      picker: 'Sauna', tabs: ['Overview', 'Statistics', 'Profiles', 'Advanced', 'Energy', 'Support'],
-      info: 'Sauna', stats: 'Statistics',
+      picker: 'Sauna', tabs: ['Overview', 'Settings', 'Statistics', 'Support'],
+      info: 'Sauna', stats: 'Statistics', hAdv: 'Polling', hProfiles: 'Profiles',
       refresh: '↻ Refresh', dataAt: 'As of: ', dataLoading: 'loading …',
       poll: 'Status refresh while heating (sec)', idle: 'Status refresh while idle (sec)',
       finish: '"Finishing soon" threshold (min)',
@@ -263,7 +261,9 @@
       fChildLock: 'Child lock', fRemote: 'Remote safety state',
       fPayment: 'Subscription valid until', fLimits: 'Reported limits',
       sSessions: 'Sessions', sTotal: 'Total heating time', sTotalKwh: 'Total energy',
-      sTotalCost: 'Total cost', sLast: 'Last session',
+      sTotalCost: 'Total cost', sAvgKwh: 'Avg energy/session',
+      sLastWhen: 'Last session', sLastTemp: 'Last – temp./humidity',
+      sLastKwh: 'Last – energy', sLastCost: 'Last – cost',
       yes: 'Yes', no: 'No', none: '–',
       themeAuto: 'Automatic', themeLight: 'Light', themeDark: 'Dark',
     };
@@ -344,9 +344,10 @@
 
     function applyText() {
       setTxt('picker-label', T.picker);
-      var ids = ['t-overview', 't-stats', 't-profiles', 't-advanced', 't-energy', 't-support'];
+      var ids = ['t-overview', 't-settings', 't-stats', 't-support'];
       for (var i = 0; i < ids.length; i++) setTxt(ids[i], T.tabs[i]);
       setTxt('h-info', T.info); setTxt('h-stats', T.stats);
+      setTxt('h-adv', T.hAdv); setTxt('h-profiles', T.hProfiles);
       setTxt('btn-refresh', T.refresh); setTxt('data-stamp', T.dataLoading);
       setTxt('l-poll', T.poll); setTxt('l-idle', T.idle); setTxt('l-finish', T.finish);
       setTxt('h-power', T.hPower); setTxt('h-costs', T.hCosts);
@@ -370,8 +371,8 @@
         [T.fHeating, s.heating ? T.yes : T.no],
         [T.fCurTemp, s.measureTemperature == null ? T.none : (s.measureTemperature + ' °C')],
         [T.fTgtTemp, s.targetTemperature == null ? T.none : (s.targetTemperature + ' °C')],
-        [T.fCurHum, s.measureHumidity == null ? T.none : (Math.round(s.measureHumidity * 100) + ' %')],
-        [T.fTgtHum, s.targetHumidity == null ? T.none : (Math.round(s.targetHumidity * 100) + ' %')],
+        [T.fCurHum, s.measureHumidity == null ? T.none : (Math.round(s.measureHumidity) + ' %')],
+        [T.fTgtHum, s.targetHumidity == null ? T.none : (Math.round(s.targetHumidity) + ' %')],
         [T.fRemaining, s.timeRemaining == null ? T.none : s.timeRemaining],
         [T.fDoor, s.doorOpen == null ? T.none : (s.doorOpen ? T.yes : T.no)],
         [T.fPower, s.measurePower == null ? T.none : (Math.round(s.measurePower) + ' W')],
@@ -387,18 +388,25 @@
     }
 
     function renderStats(s) {
-      var st = s.stats || {}; var last = st.lastSession; var lastTxt = T.none;
+      var st = s.stats || {};
+      var kwh = st.totalKwh || 0, cost = st.totalCost || 0, n = st.sessionCount || 0;
+      var r = [
+        [T.sSessions, n],
+        [T.sTotal, fmtDur(st.totalHeatingMinutes || 0)],
+        [T.sTotalKwh, (Math.round(kwh * 10) / 10) + ' kWh'],
+        [T.sTotalCost, cost > 0 ? fmtMoney(cost) : T.none],
+        [T.sAvgKwh, n > 0 ? (Math.round(kwh / n * 10) / 10) + ' kWh' : T.none],
+      ];
+      var last = st.lastSession;
       if (last) {
-        var p = [new Date(last.startedAt).toLocaleString() + ' (' + fmtDur(last.durationMinutes) + ')', (last.temperature == null ? '?' : last.temperature) + '°C'];
-        if (last.humidity > 0) p.push(last.humidity + '%');
-        if (last.kwh > 0) p.push(last.kwh + ' kWh');
-        if (last.cost > 0) p.push(String(last.cost));
-        lastTxt = p.join(', ');
+        r.push([T.sLastWhen, fmtClock(new Date(last.startedAt)) + ' · ' + fmtDur(last.durationMinutes)]);
+        r.push([T.sLastTemp, (last.temperature == null ? '?' : last.temperature) + ' °C'
+          + (last.humidity > 0 ? ' · ' + last.humidity + ' %' : '')]);
+        r.push([T.sLastKwh, last.kwh > 0 ? last.kwh + ' kWh' : T.none]);
+        r.push([T.sLastCost, last.cost > 0 ? fmtMoney(last.cost) : T.none]);
+      } else {
+        r.push([T.sLastWhen, T.none]);
       }
-      var r = [[T.sSessions, st.sessionCount || 0], [T.sTotal, fmtDur(st.totalHeatingMinutes || 0)]];
-      if (st.totalKwh > 0) r.push([T.sTotalKwh, (Math.round(st.totalKwh * 10) / 10) + ' kWh']);
-      if (st.totalCost > 0) r.push([T.sTotalCost, String(Math.round(st.totalCost * 100) / 100)]);
-      r.push([T.sLast, lastTxt]);
       $('stats').innerHTML = rows(r);
     }
 
@@ -473,8 +481,11 @@
 
     function fmtClock(d) {
       function p(n) { return (n < 10 ? '0' : '') + n; }
-      return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+      var date = p(d.getDate()) + '.' + p(d.getMonth() + 1) + '.' + d.getFullYear();
+      var time = p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+      return date + ', ' + time;
     }
+    function fmtMoney(v) { return (Math.round(v * 100) / 100).toFixed(2); }
 
     function refresh() {
       return api('GET', '/overview').then(function (list) {
