@@ -113,6 +113,7 @@
     },
     "huum_remote_blocked": {
       "type": "boolean",
+      "icon": "/assets/huum_remote_blocked.svg",
       "title": {
         "en": "Remote start blocked",
         "de": "Fernstart blockiert"
