@@ -105,11 +105,10 @@ class HuumApp extends Homey.App {
    */
   async getPowerMeters() {
     const api = await this.getHomeyApi();
-    const own = new Set(this.getUkuDevices().map((d) => d.getData().id));
     const devices = await api.devices.getDevices();
     return Object.values(devices)
       .filter((d) => Array.isArray(d.capabilities) && d.capabilities.includes('measure_power'))
-      .filter((d) => !own.has(d.id))
+      .filter((d) => !String(d.driverId || d.driverUri || '').includes('com.rickd.huum'))
       .map((d) => ({
         id: d.id,
         name: d.name,

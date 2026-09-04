@@ -2,5 +2,9 @@
   "0.7.0": {
     "en": "First test release. Settable humidity, profiles, scheduled start, energy stats, and a dashboard widget.",
     "de": "Erste Testversion. Einstellbare Feuchte, Profile, geplanter Start, Verbrauchs-Statistik und ein Dashboard-Widget."
+  },
+  "0.7.1": {
+    "en": "Renamed the emergency-stop alarm; recent-sessions list and power-meter picker fixes.",
+    "de": "\"Notaus\"-Alarm umbenannt; Korrekturen an der Sitzungs-Liste und der Zaehler-Auswahl."
   }
 }

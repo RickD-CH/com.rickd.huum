@@ -90,6 +90,8 @@ class HuumDevice extends Homey.Device {
 
   async onDeleted() {
     this._clearPoll();
+    this._clearBookingTimer();
+    this._clearAutoStopTimer();
     await this._unbindPowerMeter();
   }
 
@@ -167,6 +169,19 @@ class HuumDevice extends Homey.Device {
     }
   }
 
+  /** Session/energy stats — shared by getConfig() and getPublicState(). */
+  _statsModel() {
+    return {
+      sessionCount: this.getStoreValue('sessionCount') || 0,
+      totalHeatingMinutes: this.getStoreValue('totalHeatingMinutes') || 0,
+      totalKwh: this.getStoreValue('totalKwh') || 0,
+      totalCost: this.getStoreValue('totalCost') || 0,
+      lastSession: this.getStoreValue('lastSession') || null,
+      recent: (this.getStoreValue('sessionHistory') || []).slice(0, 12),
+      meterTotalKwh: this._powerSource() === 'meter' ? (this.getStoreValue('meterTotalKwh') ?? null) : null,
+    };
+  }
+
   /** Everything the app settings page needs for this device. */
   getConfig() {
     return {
@@ -191,15 +206,7 @@ class HuumDevice extends Homey.Device {
         electricityPrice: this._cfg('electricityPrice', 0),
       },
       booking: this.getBooking(),
-      stats: {
-        sessionCount: this.getStoreValue('sessionCount') || 0,
-        totalHeatingMinutes: this.getStoreValue('totalHeatingMinutes') || 0,
-        totalKwh: this.getStoreValue('totalKwh') || 0,
-        totalCost: this.getStoreValue('totalCost') || 0,
-        lastSession: this.getStoreValue('lastSession') || null,
-        recent: (this.getStoreValue('sessionHistory') || []).slice(0, 12),
-        meterTotalKwh: this._powerSource() === 'meter' ? (this.getStoreValue('meterTotalKwh') ?? null) : null,
-      },
+      stats: this._statsModel(),
       hasSteamer: this.hasCapability('target_humidity'),
       hasMeter: this._usingPowerMeter(),
     };
@@ -1154,14 +1161,16 @@ class HuumDevice extends Homey.Device {
     // forever if the heater's limits differ from the app.json defaults.
     if (this.getStoreValue('appliedTempLimits') === key) return;
 
-    const current = this.getCapabilityOptions ? this.getCapabilityOptions('target_temperature') : null;
-    if (current && current.min === config.minTemp && current.max === config.maxTemp) {
+    const current = (this.getCapabilityOptions && this.getCapabilityOptions('target_temperature')) || {};
+    if (current.min === config.minTemp && current.max === config.maxTemp) {
       await this.setStoreValue('appliedTempLimits', key).catch(this.error);
       return;
     }
 
     try {
+      // Merge — a bare { min, max } would drop step/decimals/uiComponent/title.
       await this.setCapabilityOptions('target_temperature', {
+        ...current,
         min: config.minTemp,
         max: config.maxTemp,
       });
@@ -1229,13 +1238,7 @@ class HuumDevice extends Homey.Device {
       measurePower: this.hasCapability('measure_power') ? (this.getCapabilityValue('measure_power') ?? null) : null,
       statusText: s.statusText || null,
       info: this._buildInfoModel(s),
-      stats: {
-        sessionCount: this.getStoreValue('sessionCount') || 0,
-        totalHeatingMinutes: this.getStoreValue('totalHeatingMinutes') || 0,
-        totalKwh: this.getStoreValue('totalKwh') || 0,
-        totalCost: this.getStoreValue('totalCost') || 0,
-        lastSession: this.getStoreValue('lastSession') || null,
-      },
+      stats: this._statsModel(),
       config: this.getConfig(),
     };
   }
