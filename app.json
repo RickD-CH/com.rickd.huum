@@ -450,7 +450,7 @@
           "max": 110,
           "step": 1,
           "decimals": 0,
-          "uiComponent": "slider",
+          "uiComponent": "thermostat",
           "title": {
             "en": "Target temperature",
             "de": "Zieltemperatur"
@@ -473,7 +473,7 @@
           "min": 0,
           "max": 0.9,
           "step": 0.05,
-          "uiComponent": "slider",
+          "uiComponent": "thermostat",
           "title": {
             "en": "Target humidity",
             "de": "Zielfeuchte"
