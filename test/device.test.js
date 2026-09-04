@@ -599,25 +599,41 @@ async function testBookingNotificationSubstitutesTheDeviceName() {
   console.log('OK: the booking-started notification correctly substitutes the device name (no leftover placeholder)');
 }
 
-async function testBookingNotificationsCanBeDisabled() {
-  const device = makeDevice({ capabilities: { onoff: false, target_temperature: 80 } });
-  device.__store.notifyBookingEvents = false;
-  assert.strictEqual(device.getConfig().advanced.notifyBookingEvents, false, 'getConfig() exposes the setting for the toggle');
+async function testTimelineNotificationsToggleDisablesAll() {
+  // Master switch off — no Timeline notification at all, from any of the
+  // app's notification sources, even when their own individual setting
+  // (notifyOnWaterAlarm / waterCheckReminder) is separately turned on.
+  const device = makeDevice({
+    capabilities: {
+      onoff: false, target_temperature: 80, target_humidity: 0.3, alarm_water: false, alarm_generic: false,
+    },
+  });
+  device.__store.timelineNotifications = false;
+  device.__settings = { notifyOnWaterAlarm: true, waterCheckReminder: true };
+  assert.strictEqual(device.getConfig().advanced.timelineNotifications, false, 'getConfig() exposes the master switch');
 
-  // Success path: no notification.
+  // Water alarm.
+  await device._syncSafetyAlarms({ steamerError: 1, isEmergencyStop: false });
+  assert.strictEqual(device.homey.__notifications.length, 0, 'no water-alarm notification while the master switch is off');
+
+  // Water-check reminder.
+  await device._maybeWaterCheckReminder();
+  assert.strictEqual(device.homey.__notifications.length, 0, 'no water-check reminder either');
+
+  // Scheduled start — success path.
   device.api = { turnOn: async () => ({}), getStatus: async () => { throw new Error('x'); } };
   device.__store.booking = { at: Date.now() - 1000, profile: null, temperature: 70 };
   await device._fireBooking();
-  assert.strictEqual(device.homey.__notifications.length, 0, 'no "started" notification when the setting is off');
+  assert.strictEqual(device.homey.__notifications.length, 0, 'no "started" notification either');
 
-  // Failure path: still recorded in the history, just no notification.
+  // Scheduled start — failure path: still recorded in the history, just no notification.
   device.api = { turnOn: async () => { throw new HuumSafetyError(); }, getStatus: async () => { throw new Error('x'); } };
   device.__store.booking = { at: Date.now() - 1000, profile: null, temperature: 70 };
   await device._fireBooking();
-  assert.strictEqual(device.homey.__notifications.length, 0, 'no "failed" notification when the setting is off either');
+  assert.strictEqual(device.homey.__notifications.length, 0, 'no "failed" notification either');
   assert.strictEqual(device.getStoreValue('sessionHistory')[0].failed, true, 'the failure is still recorded in the history regardless');
 
-  console.log('OK: the "notify on scheduled start / failure" toggle silences the notifications without affecting the history');
+  console.log('OK: the Timeline-notifications master switch silences every notification source (water alarm, water-check, booking start/fail) at once, without affecting the history');
 }
 
 async function testClearBookingResetsTheTile() {
@@ -785,7 +801,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testStartProfilePickerFillsTheSliders();
   await testScheduledStartFires();
   await testBookingNotificationSubstitutesTheDeviceName();
-  await testBookingNotificationsCanBeDisabled();
+  await testTimelineNotificationsToggleDisablesAll();
   await testClearBookingResetsTheTile();
   await testStaleBookingIsDroppedNotFired();
   await testFailedScheduledStartIsRecordedWithReason();

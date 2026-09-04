@@ -36,7 +36,7 @@
     "de": "Das Zeitformat dieser Anzeigen (24h oder AM/PM) richtet sich neu nach der Sprache deiner Homey."
   },
   "0.7.9": {
-    "en": "Fixed a literal \"{{name}}\" showing up in Timeline notifications; added a toggle to turn scheduled-start notifications off.",
-    "de": "Ein woertliches \"{{name}}\" in Timeline-Meldungen behoben; neuer Schalter, um Benachrichtigungen zum geplanten Start auszuschalten."
+    "en": "Fixed a literal \"{{name}}\" in Timeline notifications; added a toggle to turn all of this app's Timeline notifications off.",
+    "de": "Ein woertliches \"{{name}}\" in Timeline-Meldungen behoben; neuer Schalter fuer alle Timeline-Meldungen dieser App."
   }
 }

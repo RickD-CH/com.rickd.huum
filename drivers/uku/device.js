@@ -196,7 +196,7 @@ class HuumDevice extends Homey.Device {
         pollInterval: this._cfg('pollInterval', DEFAULT_POLL_INTERVAL_S),
         idlePollInterval: this._cfg('idlePollInterval', DEFAULT_IDLE_POLL_INTERVAL_S),
         finishingSoonThresholdMinutes: this._cfg('finishingSoonThresholdMinutes', DEFAULT_FINISHING_SOON_MINUTES),
-        notifyBookingEvents: this._cfg('notifyBookingEvents', true),
+        timelineNotifications: this._cfg('timelineNotifications', true),
       },
       power: {
         source: this._powerSource(),
@@ -252,8 +252,8 @@ class HuumDevice extends Homey.Device {
           patch[key] = Math.round(Number(advanced[key]));
         }
       }
-      if (typeof advanced.notifyBookingEvents === 'boolean') {
-        patch.notifyBookingEvents = advanced.notifyBookingEvents;
+      if (typeof advanced.timelineNotifications === 'boolean') {
+        patch.timelineNotifications = advanced.timelineNotifications;
       }
     }
     if (power) {
@@ -446,7 +446,7 @@ class HuumDevice extends Homey.Device {
         await this.setStoreValue('autoStopAt', Date.now() + b.autoStopMinutes * 60 * 1000).catch(this.error);
         this._scheduleAutoStop();
       }
-      if (this._cfg('notifyBookingEvents', true)) {
+      if (this._cfg('timelineNotifications', true)) {
         await this.homey.notifications.createNotification({
           excerpt: this.homey.__('notifications.booking_started', { name: this.getName() }),
         }).catch(() => {});
@@ -454,7 +454,7 @@ class HuumDevice extends Homey.Device {
     } catch (err) {
       this.error('Scheduled start failed:', err.message);
       await this._recordBookingFailure(err);
-      if (this._cfg('notifyBookingEvents', true)) {
+      if (this._cfg('timelineNotifications', true)) {
         await this.homey.notifications.createNotification({
           excerpt: this.homey.__('notifications.booking_failed', { name: this.getName(), error: err.message }),
         }).catch(() => {});
@@ -767,7 +767,7 @@ class HuumDevice extends Homey.Device {
   }
 
   async _maybeWaterCheckReminder() {
-    if (!this.getSetting('waterCheckReminder')) return;
+    if (!this.getSetting('waterCheckReminder') || !this._cfg('timelineNotifications', true)) return;
     await this.homey.notifications.createNotification({
       excerpt: this.homey.__('notifications.water_check_reminder', { name: this.getName() }),
     }).catch((err) => this.error('Failed to create water-check reminder:', err.message));
@@ -1020,7 +1020,7 @@ class HuumDevice extends Homey.Device {
     await this._setCapabilitySafe('alarm_water', hasWaterAlarm);
     await this._setCapabilitySafe('alarm_generic', status.isEmergencyStop);
 
-    if (hasWaterAlarm && !hadWaterAlarm && this.getSetting('notifyOnWaterAlarm')) {
+    if (hasWaterAlarm && !hadWaterAlarm && this.getSetting('notifyOnWaterAlarm') && this._cfg('timelineNotifications', true)) {
       const detail = STEAMER_ERROR_TEXTS[status.steamerError] || this.homey.__('notifications.water_alarm_body');
       this.homey.notifications.createNotification({
         excerpt: `${this.homey.__('notifications.water_alarm_title', { name: this.getName() })} ${detail}`,

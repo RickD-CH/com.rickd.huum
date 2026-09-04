@@ -146,9 +146,10 @@
         <label id="l-finish">"Finishing soon" threshold (min)</label>
         <input type="number" id="finishingSoonThresholdMinutes" min="1" max="60" step="1" />
         <div class="radio">
-          <input type="checkbox" id="notifyBookingEvents" />
-          <label for="notifyBookingEvents" id="l-notify-booking">Notify on scheduled start / failure</label>
+          <input type="checkbox" id="timelineNotifications" />
+          <label for="timelineNotifications" id="l-notify-timeline">Timeline notifications</label>
         </div>
+        <div class="hint" id="notify-timeline-hint">Water alarm, scheduled start, and failures. Off means none of these show up in the Timeline at all.</div>
         <div class="btnrow">
           <button id="save-advanced" type="button" class="action">Save</button>
           <span class="saved" id="saved-advanced" hidden>Saved</span>
@@ -261,7 +262,8 @@
       },
       poll: 'Statusabruf beim Heizen (Sek.)', idle: 'Statusabruf im Standby (Sek.)',
       finish: 'Schwelle "bald fertig" (Min.)',
-      notifyBooking: 'Bei geplantem Start / Fehlschlag benachrichtigen',
+      notifyTimeline: 'Timeline-Benachrichtigungen',
+      notifyTimelineHint: 'Wasseralarm, geplanter Start und Fehlschläge. Aus heisst: keine davon erscheint in der Timeline.',
       hPower: 'Ofenleistung', hCosts: 'Kosten',
       psEstimate: 'Aus kW-Wert schätzen', psMeter: 'Mit einem Gerät messen', psFlow: 'Aus einem Flow',
       duty: 'Auslastung bei Zieltemperatur (%)',
@@ -308,7 +310,8 @@
       },
       poll: 'Status refresh while heating (sec)', idle: 'Status refresh while idle (sec)',
       finish: '"Finishing soon" threshold (min)',
-      notifyBooking: 'Notify on scheduled start / failure',
+      notifyTimeline: 'Timeline notifications',
+      notifyTimelineHint: 'Water alarm, scheduled start, and failures. Off means none of these show up in the Timeline at all.',
       hPower: 'Heater power', hCosts: 'Costs',
       psEstimate: 'Estimate from a kW value', psMeter: 'Measure with a device', psFlow: 'From a Flow',
       duty: 'Duty cycle at temperature (%)',
@@ -430,7 +433,7 @@
       setTxt('edit-booking', T.bkChange); setTxt('cancel-booking', T.bkCancel);
       setTxt('l-bk-next', T.bkNext); setTxt('l-bk-with', T.bkWith);
       setTxt('l-poll', T.poll); setTxt('l-idle', T.idle); setTxt('l-finish', T.finish);
-      setTxt('l-notify-booking', T.notifyBooking);
+      setTxt('l-notify-timeline', T.notifyTimeline); setTxt('notify-timeline-hint', T.notifyTimelineHint);
       setTxt('h-power', T.hPower); setTxt('h-costs', T.hCosts);
       setTxt('l-ps-estimate', T.psEstimate); setTxt('l-ps-meter', T.psMeter); setTxt('l-ps-flow', T.psFlow);
       setTxt('l-kw', T.kw); setTxt('l-price', T.price); setTxt('price-hint', T.priceHint);
@@ -535,7 +538,7 @@
       $('pollInterval').value = cfg.advanced.pollInterval;
       $('idlePollInterval').value = cfg.advanced.idlePollInterval;
       $('finishingSoonThresholdMinutes').value = cfg.advanced.finishingSoonThresholdMinutes;
-      $('notifyBookingEvents').checked = cfg.advanced.notifyBookingEvents !== false;
+      $('timelineNotifications').checked = cfg.advanced.timelineNotifications !== false;
     }
 
     function renderPower(cfg) {
@@ -779,7 +782,7 @@
           pollInterval: Number($('pollInterval').value),
           idlePollInterval: Number($('idlePollInterval').value),
           finishingSoonThresholdMinutes: Number($('finishingSoonThresholdMinutes').value),
-          notifyBookingEvents: $('notifyBookingEvents').checked,
+          timelineNotifications: $('timelineNotifications').checked,
         } }, 'saved-advanced', null);
       });
       $('save-power').addEventListener('click', function () {
