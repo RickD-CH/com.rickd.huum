@@ -330,6 +330,16 @@ async function testRemoteStateTriggersOnEdge() {
   console.log('OK: remote_control_blocked / _available fire only on the state edge');
 }
 
+async function testGetConfigExposesRemoteBlocked() {
+  const device = makeDevice({ capabilities: {} });
+  device._lastStatus = { remoteSafetyState: 'safe' };
+  assert.strictEqual(device.getConfig().remoteBlocked, false, 'settings page can warn before the block, not just after');
+
+  device._lastStatus = { remoteSafetyState: 'notSafe' };
+  assert.strictEqual(device.getConfig().remoteBlocked, true);
+  console.log('OK: getConfig() exposes the live remote-blocked state for the scheduling hint');
+}
+
 async function testCurrentTemperatureChangedFiresOnEveryChange() {
   const device = makeDevice({ capabilities: { 'measure_temperature.room': 40 } });
 
@@ -532,7 +542,53 @@ async function testStaleBookingIsDroppedNotFired() {
   await device._fireBooking();
   assert.strictEqual(called, false, 'a long-missed booking must not start the sauna');
   assert.strictEqual(device.getBooking(), null, 'and is discarded');
-  console.log('OK: a scheduled start missed by >30 min is dropped, not fired late');
+
+  const recorded = device.getStoreValue('sessionHistory')[0];
+  assert.deepStrictEqual(
+    { failed: recorded.failed, reason: recorded.reason },
+    { failed: true, reason: 'missed' },
+    'the miss is recorded in the history so it does not go unnoticed',
+  );
+  console.log('OK: a scheduled start missed by >30 min is dropped, not fired late, and recorded as missed');
+}
+
+async function testFailedScheduledStartIsRecordedWithReason() {
+  // Remote-safety blocked: _start() rejects before ever calling the API.
+  const remoteBlockedDevice = makeDevice({ capabilities: { onoff: false, target_temperature: 80 } });
+  remoteBlockedDevice.api = { turnOn: async () => ({}), getStatus: async () => { throw new Error('offline'); } };
+  remoteBlockedDevice._lastStatus = { remoteSafetyState: 'notSafe' };
+  remoteBlockedDevice.__store.booking = { at: Date.now() - 1000, profile: null, temperature: 70 };
+  await remoteBlockedDevice._fireBooking();
+  let rec = remoteBlockedDevice.getStoreValue('sessionHistory')[0];
+  assert.strictEqual(rec.failed, true);
+  assert.strictEqual(rec.reason, 'remote_disabled', 'remote-safety block is recorded with its own reason');
+
+  // Door open: the HUUM API itself rejects the start.
+  const doorOpenDevice = makeDevice({ capabilities: { onoff: false, target_temperature: 80 } });
+  doorOpenDevice.api = {
+    turnOn: async () => { throw new HuumSafetyError(); },
+    getStatus: async () => { throw new Error('offline'); },
+  };
+  doorOpenDevice.__store.booking = { at: Date.now() - 1000, profile: null, temperature: 70 };
+  await doorOpenDevice._fireBooking();
+  rec = doorOpenDevice.getStoreValue('sessionHistory')[0];
+  assert.strictEqual(rec.failed, true);
+  assert.strictEqual(rec.reason, 'door_open', 'a door-open rejection is recorded with its own reason');
+
+  // Anything else falls back to a generic reason, still recorded.
+  const otherDevice = makeDevice({ capabilities: { onoff: false, target_temperature: 80 } });
+  otherDevice.api = {
+    turnOn: async () => { throw new Error('network blip'); },
+    getStatus: async () => { throw new Error('offline'); },
+  };
+  otherDevice.__store.booking = { at: Date.now() - 1000, profile: null, temperature: 70 };
+  await otherDevice._fireBooking();
+  rec = otherDevice.getStoreValue('sessionHistory')[0];
+  assert.strictEqual(rec.failed, true);
+  assert.strictEqual(rec.reason, 'other', 'an unclassified failure still lands in the history');
+  assert.strictEqual(rec.message, 'network blip');
+
+  console.log('OK: a scheduled start that fails on the day is recorded in the history with its reason (remote/door/other)');
 }
 
 async function testAutoOffSurvivesRestartAndClearsWhenOff() {
@@ -616,6 +672,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testDoorSensorAbsentOverridesSafetyCheck();
   await testRemoteSafetyBlocksStartAndWarns();
   await testRemoteStateTriggersOnEdge();
+  await testGetConfigExposesRemoteBlocked();
   await testCurrentTemperatureChangedFiresOnEveryChange();
   await testDutyCycleLowersTheEstimateAtTemp();
   await testSetMeasuredPowerFeedsCapability();
@@ -628,6 +685,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testStartProfilePickerFillsTheSliders();
   await testScheduledStartFires();
   await testStaleBookingIsDroppedNotFired();
+  await testFailedScheduledStartIsRecordedWithReason();
   await testAutoOffSurvivesRestartAndClearsWhenOff();
   await testStartProfilePickerStartsWithThatProfile();
   await testHumidityCapabilityScales();

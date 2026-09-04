@@ -206,6 +206,7 @@ class HuumDevice extends Homey.Device {
         electricityPrice: this._cfg('electricityPrice', 0),
       },
       booking: this.getBooking(),
+      remoteBlocked: HuumDevice._isBlocked(this._lastStatus),
       stats: this._statsModel(),
       hasSteamer: this.hasCapability('target_humidity'),
       hasMeter: this._usingPowerMeter(),
@@ -384,7 +385,10 @@ class HuumDevice extends Homey.Device {
       await this.setStoreValue('booking', null).catch(this.error);
       // Missed by more than 30 min (app was down) — don't start a sauna
       // nobody is standing next to.
-      if (Date.now() - b.at > 30 * 60 * 1000) return;
+      if (Date.now() - b.at > 30 * 60 * 1000) {
+        await this._recordBookingFailure({ code: 'missed' });
+        return;
+      }
 
       if (b.profile && typeof this._cfg(`${b.profile}Temperature`, null) === 'number') {
         await this.startWithProfile(b.profile);
@@ -406,6 +410,7 @@ class HuumDevice extends Homey.Device {
       }).catch(() => {});
     } catch (err) {
       this.error('Scheduled start failed:', err.message);
+      await this._recordBookingFailure(err);
       await this.homey.notifications.createNotification({
         excerpt: this.homey.__('notifications.booking_failed', { name: this.getName(), error: err.message }),
       }).catch(() => {});
@@ -413,6 +418,22 @@ class HuumDevice extends Homey.Device {
       this._firingBooking = false;
       await this._syncStatus().catch((err) => this.error('Post-booking status refresh failed:', err.message));
     }
+  }
+
+  /**
+   * A scheduled start didn't happen — either it failed outright (remote
+   * blocked, door open, auth, ...) or it was dropped for being too stale.
+   * Recorded into the same history the Statistics tab shows, next to real
+   * sessions, so a failure overnight doesn't go unnoticed.
+   */
+  async _recordBookingFailure(err) {
+    let reason = 'other';
+    if (err instanceof HuumAuthError) reason = 'auth_failed';
+    else if (err && err.code) reason = err.code; // 'remote_disabled' | 'door_open' | 'humidity_exceeds_max' | 'missed'
+    const record = { failed: true, at: Date.now(), reason, message: (err && err.message) || null };
+    const history = this.getStoreValue('sessionHistory') || [];
+    history.unshift(record);
+    await this.setStoreValue('sessionHistory', history.slice(0, 60)).catch(this.error);
   }
 
   /**
@@ -722,7 +743,9 @@ class HuumDevice extends Homey.Device {
       } catch (err) { /* fall through with the cached status */ }
       if (last && typeof last.remoteSafetyState === 'string'
         && last.remoteSafetyState.toLowerCase() !== 'safe') {
-        throw new Error(this.homey.__('errors.remote_disabled'));
+        const blockedErr = new Error(this.homey.__('errors.remote_disabled'));
+        blockedErr.code = 'remote_disabled';
+        throw blockedErr;
       }
     }
     try {
@@ -735,7 +758,9 @@ class HuumDevice extends Homey.Device {
       await this._withAuthHandling(this.api.turnOn(args));
     } catch (err) {
       if (err instanceof HuumSafetyError) {
-        throw new Error(this.homey.__('errors.door_open'));
+        const doorErr = new Error(this.homey.__('errors.door_open'));
+        doorErr.code = 'door_open';
+        throw doorErr;
       }
       if (err.code === 'humidity_exceeds_max') {
         throw new Error(this.homey.__('errors.humidity_exceeds_max', err.data));

@@ -18,5 +18,9 @@
   "0.7.4": {
     "en": "The Support tab now links to the community forum instead of GitHub.",
     "de": "Der Support-Tab verlinkt neu auf das Community-Forum statt auf GitHub."
+  },
+  "0.7.5": {
+    "en": "A warning when scheduling with remote start blocked, and failed scheduled starts now show up in the session history.",
+    "de": "Warnung beim Planen, falls Fernstart blockiert ist, und fehlgeschlagene geplante Starts erscheinen neu im Sitzungsverlauf."
   }
 }
