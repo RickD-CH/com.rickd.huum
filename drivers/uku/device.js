@@ -78,12 +78,13 @@ class HuumDevice extends Homey.Device {
 
     this._scheduleNextPoll();
     this._scheduleBooking();
+    this._scheduleAutoStop();
   }
 
   async onUninit() {
     this._clearPoll();
     this._clearBookingTimer();
-    if (this._bookingAutoStop) this.homey.clearTimeout(this._bookingAutoStop);
+    this._clearAutoStopTimer();
     await this._unbindPowerMeter();
   }
 
@@ -319,6 +320,35 @@ class HuumDevice extends Homey.Device {
     }, Math.min(delay, MAX));
   }
 
+  // ---- Auto-off timer (survives an app restart) ---------------------------
+
+  _clearAutoStopTimer() {
+    if (this._autoStopTimeout) { this.homey.clearTimeout(this._autoStopTimeout); this._autoStopTimeout = null; }
+  }
+
+  /** The app-side "turn off at" timer from a booking's optional auto-off. */
+  _scheduleAutoStop() {
+    this._clearAutoStopTimer();
+    const at = this.getStoreValue('autoStopAt');
+    if (typeof at !== 'number') return;
+    const delay = at - Date.now();
+    if (delay <= 0) {
+      this.setStoreValue('autoStopAt', null).catch(this.error);
+      this._withAuthHandling(this.api.turnOff())
+        .then(() => this._syncStatus())
+        .catch((err) => this.error('Auto-off failed:', err.message));
+      return;
+    }
+    const MAX = 20 * 24 * 60 * 60 * 1000;
+    const capped = delay > MAX;
+    this._autoStopTimeout = this.homey.setTimeout(() => {
+      if (capped) { this._scheduleAutoStop(); return; }
+      this.setStoreValue('autoStopAt', null).catch(this.error);
+      this.triggerCapabilityListener('onoff', false)
+        .catch((err) => this.error('Auto-off failed:', err.message));
+    }, Math.min(delay, MAX));
+  }
+
   /** Cheap safety net in case a scheduled timer was lost across a restart. */
   _checkBookingDue() {
     const b = this.getBooking();
@@ -350,10 +380,8 @@ class HuumDevice extends Homey.Device {
       await this._setCapabilitySafe('onoff', true);
 
       if (b.autoStopMinutes) {
-        this._bookingAutoStop = this.homey.setTimeout(() => {
-          this.triggerCapabilityListener('onoff', false)
-            .catch((err) => this.error('Booking auto-stop failed:', err.message));
-        }, b.autoStopMinutes * 60 * 1000);
+        await this.setStoreValue('autoStopAt', Date.now() + b.autoStopMinutes * 60 * 1000).catch(this.error);
+        this._scheduleAutoStop();
       }
       await this.homey.notifications.createNotification({
         excerpt: this.homey.__('notifications.booking_started', { name: this.getName() }),
@@ -775,6 +803,13 @@ class HuumDevice extends Homey.Device {
 
   async _applyStatus(status) {
     await this._setCapabilitySafe('onoff', status.isHeating);
+    // A pending auto-off only makes sense while this same session runs — the
+    // moment the sauna is off (manually, at the panel, or the UKU's own
+    // limit) forget it so it can't clobber a later session.
+    if (!status.isHeating && this.getStoreValue('autoStopAt') != null) {
+      this._clearAutoStopTimer();
+      await this.setStoreValue('autoStopAt', null).catch(this.error);
+    }
     await this._setCapabilitySafe('measure_temperature.room', status.temperature);
     await this._setCapabilitySafe('measure_humidity', status.humidity);
     // The target temp/humidity capabilities double as "what the next start
@@ -1110,10 +1145,10 @@ class HuumDevice extends Homey.Device {
       remoteBlocked: this.homey.__(HuumDevice._isBlocked(src) ? 'labels.yes' : 'labels.no'),
       paymentEndDate: src.paymentEndDate || '-',
       deviceLimits: config
-        ? `${config.minTemp}–${config.maxTemp} °C${config.maxTimer ? `, timer ${config.minTimer}–${config.maxTimer} min` : ''}`
+        ? `${config.minTemp}–${config.maxTemp} °C${config.maxTimer ? `, timer ${config.minTimer}–${config.maxTimer} h` : ''}`
         : '-',
       maxHeatingTime: (config && (config.maxHeatingTime || config.maxHeatTime))
-        ? `${config.maxHeatingTime || config.maxHeatTime} min`
+        ? `${config.maxHeatingTime || config.maxHeatTime} h`
         : '-',
       totalHeatingTime: this._formatDuration(this.getStoreValue('totalHeatingMinutes') || 0),
       lastSessionSummary: this._buildSessionSummaryText(),

@@ -74,7 +74,7 @@
 </head>
 <body>
   <div class="toprow">
-    <h1 id="title">HUUM UKU Sauna</h1>
+    <span class="hint" id="theme-label">Theme</span>
     <select id="theme" title="Theme">
       <option value="auto">Auto</option>
       <option value="light">Light</option>
@@ -268,7 +268,7 @@
       sLastWhen: 'Letzte Sitzung', sLastTemp: 'Letzte – Temp./Feuchte',
       sLastKwh: 'Letzte – Verbrauch', sLastCost: 'Letzte – Kosten',
       yes: 'Ja', no: 'Nein', none: '–',
-      themeAuto: 'Automatisch', themeLight: 'Hell', themeDark: 'Dunkel',
+      themeLabel: 'Design', themeAuto: 'Automatisch', themeLight: 'Hell', themeDark: 'Dunkel',
     } : {
       picker: 'Sauna', tabs: ['Overview', 'Settings', 'Statistics', 'Support'],
       info: 'Sauna', stats: 'Statistics', hAdv: 'Polling', hProfiles: 'Profiles', profileN: 'Profile',
@@ -307,7 +307,7 @@
       sLastWhen: 'Last session', sLastTemp: 'Last – temp./humidity',
       sLastKwh: 'Last – energy', sLastCost: 'Last – cost',
       yes: 'Yes', no: 'No', none: '–',
-      themeAuto: 'Automatic', themeLight: 'Light', themeDark: 'Dark',
+      themeLabel: 'Theme', themeAuto: 'Automatic', themeLight: 'Light', themeDark: 'Dark',
     };
 
     var HomeyRef = null;
@@ -388,6 +388,7 @@
       setTxt('picker-label', T.picker);
       var ids = ['t-overview', 't-settings', 't-stats', 't-support'];
       for (var i = 0; i < ids.length; i++) setTxt(ids[i], T.tabs[i]);
+      setTxt('theme-label', T.themeLabel);
       setTxt('h-info', T.info); setTxt('h-stats', T.stats);
       setTxt('h-adv', T.hAdv); setTxt('h-profiles', T.hProfiles);
       setTxt('btn-refresh', T.refresh); setTxt('data-stamp', T.dataLoading);

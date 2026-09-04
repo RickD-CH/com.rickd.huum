@@ -511,6 +511,27 @@ async function testStaleBookingIsDroppedNotFired() {
   console.log('OK: a scheduled start missed by >30 min is dropped, not fired late');
 }
 
+async function testAutoOffSurvivesRestartAndClearsWhenOff() {
+  const device = makeDevice({ capabilities: { onoff: true } });
+  device.api = { turnOff: async () => ({}), getStatus: async () => { throw new Error('x'); } };
+  device._registerCapabilityListeners();
+
+  // A booking's auto-off armed for +1h; then the app restarted.
+  device.__store.autoStopAt = Date.now() + 3600000;
+  device._scheduleAutoStop();
+  assert.ok(
+    device.homey.__timers.some((t) => t.ms > 0 && t.ms <= 3600000),
+    'the auto-off timer is re-armed from the stored time',
+  );
+
+  // The sauna being found off (any reason) drops the pending auto-off so it
+  // can't hit a later session.
+  device.__store.autoStopAt = Date.now() + 3600000;
+  await device._applyStatus({ isHeating: false, temperature: 22, targetTemperature: 80, doorClosed: true });
+  assert.strictEqual(device.getStoreValue('autoStopAt'), null, 'a stopped sauna clears the pending auto-off');
+  console.log('OK: the booking auto-off re-arms across a restart and clears once the sauna stops');
+}
+
 async function testStartProfilePickerFillsTheSliders() {
   const device = makeDevice({
     capabilities: { onoff: false, huum_start_profile: 'manual', target_temperature: 80, target_humidity: 0.2 },
@@ -555,6 +576,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testStartProfilePickerFillsTheSliders();
   await testScheduledStartFires();
   await testStaleBookingIsDroppedNotFired();
+  await testAutoOffSurvivesRestartAndClearsWhenOff();
   await testStartProfilePickerStartsWithThatProfile();
   await testHumidityCapabilityScales();
   console.log('\nAll device.js exception-handling tests passed.');
