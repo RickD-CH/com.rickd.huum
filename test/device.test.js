@@ -330,6 +330,25 @@ async function testRemoteStateTriggersOnEdge() {
   console.log('OK: remote_control_blocked / _available fire only on the state edge');
 }
 
+async function testCurrentTemperatureChangedFiresOnEveryChange() {
+  const device = makeDevice({ capabilities: { 'measure_temperature.room': 40 } });
+
+  // First observation just primes the edge detector — no prior value to
+  // compare against, so it must not fire.
+  await device._syncCurrentTemperature({ temperature: 40 });
+  assert.strictEqual(device.homey.__triggeredCards.length, 0);
+
+  await device._syncCurrentTemperature({ temperature: 41 });
+  const fired = device.homey.__triggeredCards.pop();
+  assert.strictEqual(fired.id, 'current_temperature_changed');
+  assert.deepStrictEqual(fired.tokens, { temperature: 41 });
+  assert.strictEqual(device.getCapabilityValue('measure_temperature.room'), 41);
+
+  await device._syncCurrentTemperature({ temperature: 41 }); // no change
+  assert.strictEqual(device.homey.__triggeredCards.length, 0);
+  console.log('OK: current_temperature_changed fires on every real change, not on the priming read or a repeat');
+}
+
 async function testDutyCycleLowersTheEstimateAtTemp() {
   const device = makeDevice({
     capabilities: { 'measure_temperature.room': 88, target_temperature: 90 },
@@ -597,6 +616,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testDoorSensorAbsentOverridesSafetyCheck();
   await testRemoteSafetyBlocksStartAndWarns();
   await testRemoteStateTriggersOnEdge();
+  await testCurrentTemperatureChangedFiresOnEveryChange();
   await testDutyCycleLowersTheEstimateAtTemp();
   await testSetMeasuredPowerFeedsCapability();
   await testProfileDefaultsSeededOverNull();

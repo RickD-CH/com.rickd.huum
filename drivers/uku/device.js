@@ -838,7 +838,7 @@ class HuumDevice extends Homey.Device {
       this._clearAutoStopTimer();
       await this.setStoreValue('autoStopAt', null).catch(this.error);
     }
-    await this._setCapabilitySafe('measure_temperature.room', status.temperature);
+    await this._syncCurrentTemperature(status);
     await this._setCapabilitySafe('measure_humidity', status.humidity);
     // The target temp/humidity capabilities double as "what the next start
     // uses". Only let HUUM's values win while it's actually heating — when
@@ -867,6 +867,21 @@ class HuumDevice extends Homey.Device {
     await this._syncInfoSettings(status);
 
     return status;
+  }
+
+  /**
+   * Sets the current-temperature capability and fires a "changed" trigger on
+   * the edge — Homey's own capability defaults give measure_temperature
+   * threshold cards but no plain "changed" trigger (unlike measure_humidity),
+   * so this app adds one.
+   */
+  async _syncCurrentTemperature(status) {
+    const previous = this.getCapabilityValue('measure_temperature.room');
+    await this._setCapabilitySafe('measure_temperature.room', status.temperature);
+    if (typeof previous !== 'number' || typeof status.temperature !== 'number' || status.temperature === previous) return;
+    this.homey.flow.getDeviceTriggerCard('current_temperature_changed')
+      .trigger(this, { temperature: status.temperature })
+      .catch((err) => this.error('Failed to trigger current_temperature_changed:', err.message));
   }
 
   /** Whether the UKU currently refuses a remote start (safety not confirmed). */

@@ -10,5 +10,9 @@
   "0.7.2": {
     "en": "The device now shows directly whether a remote start is blocked, not just the door state.",
     "de": "Das Geraet zeigt neu direkt an, ob ein Fernstart blockiert ist, nicht nur den Tuerstatus."
+  },
+  "0.7.3": {
+    "en": "Added a Flow trigger for the current temperature changing (Homey doesn't offer this one by default).",
+    "de": "Neuer Flow-Trigger fuer Aenderung der aktuellen Temperatur (bietet Homey standardmaessig nicht an)."
   }
 }

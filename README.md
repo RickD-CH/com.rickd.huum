@@ -43,8 +43,10 @@ and a per-kWh cost.
 **Flow** — actions *start at [temp] °C and [humidity] %*, *start with profile
 [1-3]*, *save current settings as profile [1-3]*, *set the measured power*;
 conditions *time remaining below [min]*, *remote start is (not) blocked*;
-triggers *remote start became blocked / available*, *a sauna session ended*
-(with `duration`, `temperature`, `humidity`, `kwh`, `cost` tokens).
+triggers *the current temperature changed* (Homey's own `measure_temperature`
+defaults only offer threshold cards, no plain "changed" one), *remote start
+became blocked / available*, *a sauna session ended* (with `duration`,
+`temperature`, `humidity`, `kwh`, `cost` tokens).
 
 **Adaptive polling** — fast while heating, or while the door is open / a remote
 start is blocked; slow while idle. Any command refreshes immediately regardless.
