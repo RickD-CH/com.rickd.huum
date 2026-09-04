@@ -398,7 +398,15 @@
           "min": 40,
           "max": 110,
           "step": 1,
-          "decimals": 0
+          "decimals": 0,
+          "uiComponent": "slider"
+        },
+        "measure_temperature": {
+          "uiComponent": "sensor",
+          "title": {
+            "en": "Current temperature",
+            "de": "Aktuelle Temperatur"
+          }
         },
         "measure_power": {
           "title": {
