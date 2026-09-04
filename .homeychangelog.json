@@ -6,5 +6,9 @@
   "0.7.1": {
     "en": "Renamed the emergency-stop alarm; recent-sessions list and power-meter picker fixes.",
     "de": "\"Notaus\"-Alarm umbenannt; Korrekturen an der Sitzungs-Liste und der Zaehler-Auswahl."
+  },
+  "0.7.2": {
+    "en": "The device now shows directly whether a remote start is blocked, not just the door state.",
+    "de": "Das Geraet zeigt neu direkt an, ob ein Fernstart blockiert ist, nicht nur den Tuerstatus."
   }
 }

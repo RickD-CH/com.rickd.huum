@@ -157,6 +157,7 @@ async function testReconcileCapabilitiesAddsAndRemoves() {
   await device._reconcileCapabilities({ config: 2 });
   assert.strictEqual(device.hasCapability('target_humidity'), false);
   assert.strictEqual(device.hasCapability('onoff.light'), true);
+  assert.strictEqual(device.hasCapability('huum_remote_blocked'), true, 'the remote-blocked indicator is always added, even on old pairings');
 
   await device._reconcileCapabilities({ config: 3 });
   assert.strictEqual(device.hasCapability('target_humidity'), true);
@@ -308,20 +309,24 @@ async function testRemoteSafetyBlocksStartAndWarns() {
 }
 
 async function testRemoteStateTriggersOnEdge() {
-  const device = makeDevice({ capabilities: {} });
+  const device = makeDevice({ capabilities: { huum_remote_blocked: false } });
 
   // First observation just primes the edge detector.
   await device._syncRemoteState({ remoteSafetyState: 'safe' });
   assert.strictEqual(device.homey.__triggeredCards.length, 0);
+  assert.strictEqual(device.getCapabilityValue('huum_remote_blocked'), false);
 
   await device._syncRemoteState({ remoteSafetyState: 'notSafe' });
   assert.strictEqual(device.homey.__triggeredCards.pop().id, 'remote_control_blocked');
+  assert.strictEqual(device.getCapabilityValue('huum_remote_blocked'), true, 'the device tile shows the block directly, not just settings text');
 
   await device._syncRemoteState({ remoteSafetyState: 'notSafe' }); // no change
   assert.strictEqual(device.homey.__triggeredCards.length, 0);
+  assert.strictEqual(device.getCapabilityValue('huum_remote_blocked'), true);
 
   await device._syncRemoteState({ remoteSafetyState: 'safe' });
   assert.strictEqual(device.homey.__triggeredCards.pop().id, 'remote_control_available');
+  assert.strictEqual(device.getCapabilityValue('huum_remote_blocked'), false);
   console.log('OK: remote_control_blocked / _available fire only on the state edge');
 }
 

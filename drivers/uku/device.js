@@ -806,6 +806,7 @@ class HuumDevice extends Homey.Device {
       ['measure_power', this._hasLiveMeasurePower()],
       ['huum_start_profile', true],
       ['huum_refresh', true],
+      ['huum_remote_blocked', true],
       // Split from the plain capability so Homey stops pairing it with
       // target_temperature into a "heating to X" thermostat dial.
       ['measure_temperature.room', true],
@@ -879,9 +880,13 @@ class HuumDevice extends Homey.Device {
     return HuumDevice._isBlocked(this._lastStatus);
   }
 
-  /** Fire the remote_control_blocked / _available Flow triggers on the edge. */
+  /**
+   * Keeps the device-visible "remote start blocked" indicator in sync, and
+   * fires the remote_control_blocked / _available Flow triggers on the edge.
+   */
   async _syncRemoteState(status) {
     const blocked = HuumDevice._isBlocked(status);
+    await this._setCapabilitySafe('huum_remote_blocked', blocked);
     if (this._remoteBlocked === undefined) { this._remoteBlocked = blocked; return; }
     if (blocked === this._remoteBlocked) return;
     this._remoteBlocked = blocked;

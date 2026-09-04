@@ -60,6 +60,7 @@ class HuumDriver extends Homey.Driver {
         'huum_session_count',
         'alarm_contact',
         'alarm_generic',
+        'huum_remote_blocked',
       ];
       if (hasSteamer) {
         // Only add humidity control/reading and the "no water" alarm for
