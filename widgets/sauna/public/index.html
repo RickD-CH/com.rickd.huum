@@ -66,12 +66,14 @@
     var T = DE ? {
       loading: 'Lädt …', noSauna: 'Keine Sauna gekoppelt', failed: 'Nicht erreichbar',
       off: 'Aus', heating: 'Heizt', idle: 'Bereit', unavailable: 'Offline',
-      doorOpen: 'Tür offen', remoteBlocked: 'Fernstart am UKU-Panel bestätigen',
+      doorOpen: 'Tür offen', blocked: 'Fernstart blockiert',
+      remoteBlocked: 'Sicherheit am UKU-Panel bestätigen',
       emergency: 'Notaus aktiv', now: 'jetzt', start: 'Start',
     } : {
       loading: 'Loading …', noSauna: 'No sauna paired', failed: 'Unreachable',
       off: 'Off', heating: 'Heating', idle: 'Ready', unavailable: 'Offline',
-      doorOpen: 'Door open', remoteBlocked: 'Confirm remote start on the UKU panel',
+      doorOpen: 'Door open', blocked: 'Remote start blocked',
+      remoteBlocked: 'Confirm safety on the UKU panel',
       emergency: 'Emergency stop', now: 'now', start: 'Start',
     };
 
@@ -90,15 +92,14 @@
       return '⏱ ' + (h > 0 ? h + ':' + (m < 10 ? '0' : '') + m : m + ' min');
     }
 
+    // Homey's widget API is promise-based (unlike the callback-based one on
+    // settings pages) — Homey.api(method, path, body) -> Promise.
     function api(method, path, body) {
-      return new Promise(function (resolve, reject) {
-        try {
-          HomeyRef.api(method, path, body || {}, function (err, res) {
-            if (err) reject(err instanceof Error ? err : new Error(String(err && err.message || err)));
-            else resolve(res);
-          });
-        } catch (e) { reject(e); }
-      });
+      try {
+        return Promise.resolve(HomeyRef.api(method, path, body || {}));
+      } catch (e) {
+        return Promise.reject(e);
+      }
     }
 
     function resize() {
@@ -116,7 +117,7 @@
       if (s.emergencyStop) return { txt: T.emergency, cls: 'warn' };
       if (s.doorOpen) return { txt: T.doorOpen, cls: 'warn' };
       if (s.heating) return { txt: T.heating, cls: 'on' };
-      if (s.remoteBlocked) return { txt: T.remoteBlocked, cls: 'warn' };
+      if (s.remoteBlocked) return { txt: T.blocked, cls: 'warn' };
       return { txt: T.idle, cls: '' };
     }
 
@@ -195,15 +196,16 @@
         lastJson = j; render(s);
       }).catch(function (err) {
         console.error(err);
-        if (err && /no_sauna/.test(String(err.message))) { lastJson = null; showMsg(T.noSauna); }
+        var m = String((err && (err.message || err.error)) || err);
+        if (/no_sauna/.test(m) || (err && err.statusCode === 404)) { lastJson = null; showMsg(T.noSauna); }
         else if (lastJson == null) showMsg(T.failed, true);
       });
     }
 
     function onHomeyReady(Homey) {
       HomeyRef = Homey;
-      Homey.ready({ height: 132 });
-      refresh();
+      try { Homey.ready({ height: 132 }); } catch (e) { try { Homey.ready(); } catch (e2) {} }
+      refresh().then(resize);
       setInterval(refresh, 20000);
     }
     window.onHomeyReady = onHomeyReady;
