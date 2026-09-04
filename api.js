@@ -6,9 +6,14 @@
 
 module.exports = {
 
-  /** GET /overview — live state of every paired sauna. */
+  /** GET /overview — cached state of every paired sauna. */
   async getOverview({ homey }) {
     return homey.app.getOverview();
+  },
+
+  /** POST /overview/refresh — pull a fresh reading from HUUM, then return it. */
+  async refreshOverview({ homey }) {
+    return homey.app.refreshOverview();
   },
 
   /** GET /device/:id/config — profiles / advanced / power for one sauna. */

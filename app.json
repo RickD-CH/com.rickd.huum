@@ -17,6 +17,7 @@
   "permissions": ["homey:manager:api"],
   "api": {
     "getOverview": { "method": "get", "path": "/overview" },
+    "refreshOverview": { "method": "post", "path": "/overview/refresh" },
     "getDeviceConfig": { "method": "get", "path": "/device/:id/config" },
     "setDeviceConfig": { "method": "put", "path": "/device/:id/config" },
     "getPowerMeters": { "method": "get", "path": "/power-meters" }

@@ -1006,6 +1006,15 @@ class HuumDevice extends Homey.Device {
     };
   }
 
+  /** App-page "refresh" button: pull a fresh reading from HUUM right now. */
+  async refreshNow() {
+    try {
+      await this._syncStatus();
+    } catch (err) {
+      this.error('Manual refresh failed:', err.message);
+    }
+  }
+
   /** Compact live state for the dashboard widget. */
   getWidgetState() {
     const s = this._lastStatus || {};

@@ -8,8 +8,10 @@ const path = require('path');
 const api = require(path.join(__dirname, '..', 'api.js'));
 
 async function run() {
+  let refreshed = false;
   const app = {
     getOverview: () => [{ id: 'a', name: 'Sauna A' }],
+    refreshOverview: async () => { refreshed = true; return [{ id: 'a', name: 'Sauna A', fresh: true }]; },
     getDeviceById: (id) => (id === 'a' ? {
       getConfig: () => ({ profiles: [{ id: 'profile1' }], advanced: { pollInterval: 30 }, power: { source: 'estimate' } }),
       setConfig: async (body) => ({ echoed: body }),
@@ -19,6 +21,10 @@ async function run() {
   const homey = { app };
 
   assert.deepStrictEqual(await api.getOverview({ homey }), [{ id: 'a', name: 'Sauna A' }]);
+
+  const fresh = await api.refreshOverview({ homey });
+  assert.strictEqual(refreshed, true, 'refreshOverview forces a fresh HUUM pull');
+  assert.strictEqual(fresh[0].fresh, true);
 
   const cfg = await api.getDeviceConfig({ homey, params: { id: 'a' } });
   assert.strictEqual(cfg.profiles[0].id, 'profile1');

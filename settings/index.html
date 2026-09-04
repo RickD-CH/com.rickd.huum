@@ -489,8 +489,11 @@
     }
     function fmtMoney(v) { return (Math.round(v * 100) / 100).toFixed(2); }
 
-    function refresh() {
-      return api('GET', '/overview').then(function (list) {
+    // force=true pulls a fresh reading from HUUM for every sauna first;
+    // the periodic auto-refresh just re-reads the app's current state.
+    function refresh(force) {
+      var call = force ? api('POST', '/overview/refresh') : api('GET', '/overview');
+      return call.then(function (list) {
         setTxt('data-stamp', T.dataAt + fmtClock(new Date()));
         saunas = Array.isArray(list) ? list : [];
         if (!saunas.length) { $('content').hidden = true; $('empty').hidden = false; return; }
@@ -534,7 +537,7 @@
         if (b.disabled) return;
         b.disabled = true;
         setTxt('data-stamp', T.dataLoading);
-        refresh().then(function () { setTimeout(function () { b.disabled = false; }, 400); });
+        refresh(true).then(function () { setTimeout(function () { b.disabled = false; }, 400); });
       });
       $('ps-estimate').addEventListener('change', powerBoxes);
       $('ps-meter').addEventListener('change', powerBoxes);

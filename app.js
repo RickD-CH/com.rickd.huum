@@ -77,6 +77,12 @@ class HuumApp extends Homey.App {
     });
   }
 
+  /** Force a fresh HUUM pull for every sauna, then return the overview. */
+  async refreshOverview() {
+    await Promise.all(this.getUkuDevices().map((d) => d.refreshNow()));
+    return this.getOverview();
+  }
+
   getDeviceById(id) {
     return this.getUkuDevices().find((d) => d.getData().id === id) || null;
   }
