@@ -359,16 +359,34 @@ class HuumDevice extends Homey.Device {
   }
 
   /**
-   * "Schedule a sauna start" Flow action — date + time (in the Homey's own
-   * timezone) + a profile. Sets the same one-per-device booking the app
-   * settings page uses.
+   * "Schedule a sauna start" Flow action — a day ("today"/"tomorrow"), a
+   * time and a profile, all in the Homey's own timezone. Sets the same
+   * one-per-device booking the app settings page uses. (A fixed calendar
+   * date is rarely wanted in a Flow — that's what the settings page is for.)
    */
-  async scheduleStartFromFlow(dateStr, timeStr, profileId) {
-    const at = this._flowWallTimeToMs(dateStr, timeStr);
+  async scheduleStartFromFlow(day, timeStr, profileId) {
+    const at = this._flowWallTimeToMs(this._flowDayToDateStr(day), timeStr);
     if (!Number.isFinite(at)) {
       throw new Error(this.homey.__('errors.booking_bad_datetime'));
     }
     await this.setBooking({ at, profile: profileId });
+  }
+
+  /** "today" / "tomorrow" -> "YYYY-MM-DD" for that day in the Homey's timezone. */
+  _flowDayToDateStr(day) {
+    let timeZone;
+    try { timeZone = this.homey.clock.getTimezone(); } catch (err) { /* fall through — local (UTC on Homey) */ }
+    const p = new Intl.DateTimeFormat('en-GB', {
+      timeZone, day: '2-digit', month: '2-digit', year: 'numeric',
+    }).formatToParts(new Date()).reduce((o, x) => { o[x.type] = x.value; return o; }, {});
+    let y = Number(p.year);
+    let mo = Number(p.month);
+    let d = Number(p.day);
+    if (day === 'tomorrow') {
+      const t = new Date(Date.UTC(y, mo - 1, d + 1)); // JS rolls month/year over
+      y = t.getUTCFullYear(); mo = t.getUTCMonth() + 1; d = t.getUTCDate();
+    }
+    return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
   }
 
   /**

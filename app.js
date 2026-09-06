@@ -44,7 +44,7 @@ class HuumApp extends Homey.App {
 
     this.homey.flow.getActionCard('schedule_start')
       .registerRunListener(async (args) => {
-        await args.device.scheduleStartFromFlow(args.date, args.time, args.profile);
+        await args.device.scheduleStartFromFlow(args.day, args.time, args.profile);
       });
 
     this.homey.flow.getActionCard('cancel_scheduled_start')

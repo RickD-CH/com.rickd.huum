@@ -42,5 +42,9 @@
   "0.8.0": {
     "en": "New Flow cards: schedule / cancel / check a scheduled start, plus triggers for reaching the target temperature and for the remaining time dropping below a set value.",
     "de": "Neue Flow-Karten: geplanten Start setzen / abbrechen / pruefen, plus Trigger fuer erreichte Zieltemperatur und fuer Restzeit unter einem gesetzten Wert."
+  },
+  "0.8.1": {
+    "en": "The \"schedule a start\" Flow action now takes \"today\" or \"tomorrow\" plus a time, instead of a fixed calendar date.",
+    "de": "Die Flow-Aktion \"Sauna-Start einplanen\" nimmt neu \"Heute\" oder \"Morgen\" plus eine Zeit statt eines festen Datums."
   }
 }

@@ -649,24 +649,29 @@ async function testScheduleStartFromFlowParsesInTheHomeyTimezone() {
   assert.ok(Number.isNaN(device._flowWallTimeToMs('not-a-date', '14:30')), 'garbage in -> NaN');
   assert.ok(Number.isNaN(device._flowWallTimeToMs('2026-06-15', '99:99')), 'out-of-range time -> NaN');
 
-  // The action itself creates the same one-per-device booking.
-  const future = new Date(Date.now() + 3 * 24 * 3600 * 1000);
-  const dateStr = `${future.getUTCFullYear()}-${String(future.getUTCMonth() + 1).padStart(2, '0')}-${String(future.getUTCDate()).padStart(2, '0')}`;
-  await device.scheduleStartFromFlow(dateStr, '06:00', 'profile2');
+  // "today" / "tomorrow" resolve to consecutive dates in the Homey timezone.
+  const today = device._flowDayToDateStr('today');
+  const tomorrow = device._flowDayToDateStr('tomorrow');
+  assert.ok(/^\d{4}-\d{2}-\d{2}$/.test(today) && /^\d{4}-\d{2}-\d{2}$/.test(tomorrow), 'both resolve to YYYY-MM-DD');
+  const dayMs = (s) => { const [y, m, d] = s.split('-').map(Number); return Date.UTC(y, m - 1, d); };
+  assert.strictEqual(dayMs(tomorrow) - dayMs(today), 86400000, 'tomorrow is exactly the day after today');
+
+  // The action books "tomorrow at [time]" for the chosen profile.
+  await device.scheduleStartFromFlow('tomorrow', '06:00', 'profile2');
   const b = device.getBooking();
   assert.ok(b && b.profile === 'profile2', 'the Flow action booked the chosen profile');
-  assert.strictEqual(device._flowWallTimeToMs(dateStr, '06:00'), b.at, 'stored at matches the timezone-aware parse');
+  assert.strictEqual(device._flowWallTimeToMs(tomorrow, '06:00'), b.at, 'stored at = "tomorrow 06:00" in the Homey timezone');
   assert.notStrictEqual(device.getCapabilityValue('huum_booking_status'), enLocale.labels.not_scheduled, 'and the device tile updated');
 
   await assert.rejects(
-    () => device.scheduleStartFromFlow('2020-01-01', '06:00', 'profile1'),
+    () => device.scheduleStartFromFlow('today', '00:00', 'profile1'),
     /future/i,
-    'a date in the past is rejected',
+    '"today" at a time that has already passed is rejected',
   );
   await assert.rejects(
-    () => device.scheduleStartFromFlow('rubbish', 'rubbish', 'profile1'),
+    () => device.scheduleStartFromFlow('tomorrow', 'rubbish', 'profile1'),
     (err) => err.message === enLocale.errors.booking_bad_datetime,
-    'an unparseable date/time gets its own message',
+    'an unparseable time gets its own message',
   );
 
   // The "is a start scheduled" condition and the "cancel" action just read
