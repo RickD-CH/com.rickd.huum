@@ -44,7 +44,7 @@ function makeHomeyApi() {
     },
     flow: {
       getDeviceTriggerCard: (id) => ({
-        trigger: async (device, tokens) => { triggeredCards.push({ id, tokens }); },
+        trigger: async (device, tokens, state) => { triggeredCards.push({ id, tokens, state }); },
       }),
     },
     clock: { getTimezone: () => 'Europe/Zurich' },
@@ -388,6 +388,60 @@ async function testCurrentTemperatureChangedFiresOnEveryChange() {
   await device._syncCurrentTemperature({ temperature: 41 }); // no change
   assert.strictEqual(device.homey.__triggeredCards.length, 0);
   console.log('OK: current_temperature_changed fires on every real change, not on the priming read or a repeat');
+}
+
+async function testUpToTemperatureTriggerFiresOncePerHeatUp() {
+  const device = makeDevice({ capabilities: { target_temperature: 90 } });
+  const cards = device.homey.__triggeredCards;
+
+  await device._syncUpToTemperature({ isHeating: true, temperature: 70, targetTemperature: 90 });
+  assert.strictEqual(cards.length, 0, 'below target -> no fire');
+
+  await device._syncUpToTemperature({ isHeating: true, temperature: 90, targetTemperature: 90 });
+  assert.strictEqual(cards.length, 1, 'reaching target fires it');
+  assert.strictEqual(cards[0].id, 'sauna_up_to_temperature');
+  assert.deepStrictEqual(cards[0].tokens, { temperature: 90 });
+  cards.length = 0;
+
+  await device._syncUpToTemperature({ isHeating: true, temperature: 91, targetTemperature: 90 });
+  await device._syncUpToTemperature({ isHeating: true, temperature: 89, targetTemperature: 90 }); // small dip
+  await device._syncUpToTemperature({ isHeating: true, temperature: 90, targetTemperature: 90 });
+  assert.strictEqual(cards.length, 0, 'oscillating around the setpoint does not re-fire');
+
+  await device._syncUpToTemperature({ isHeating: true, temperature: 85, targetTemperature: 90 }); // clear drop -> latch resets
+  await device._syncUpToTemperature({ isHeating: true, temperature: 90, targetTemperature: 90 });
+  assert.strictEqual(cards.length, 1, 'a real re-heat after a clear drop fires again');
+  cards.length = 0;
+
+  await device._syncUpToTemperature({ isHeating: false, temperature: 90, targetTemperature: 90 });
+  assert.strictEqual(cards.length, 0, 'not while off');
+  console.log('OK: sauna_up_to_temperature fires once when the sauna reaches target, re-arms per heat-up');
+}
+
+async function testTimeRemainingReachesTriggerFiresOnDownwardCrossing() {
+  const device = makeDevice({ capabilities: { huum_time_remaining: 0 } });
+  const cards = device.homey.__triggeredCards;
+  const statusWithMinutes = (m, heating = true) => ({
+    isHeating: heating,
+    endDate: Math.floor(Date.now() / 1000) + m * 60 + 5,
+  });
+
+  await device._syncTimeRemaining(statusWithMinutes(30)); // primes _lastTimeRemaining
+  assert.strictEqual(cards.length, 0);
+
+  await device._syncTimeRemaining(statusWithMinutes(30)); // no change
+  assert.strictEqual(cards.length, 0);
+
+  await device._syncTimeRemaining(statusWithMinutes(20)); // dropped
+  assert.strictEqual(cards.length, 1, 'a decrease fires the per-flow trigger');
+  assert.strictEqual(cards[0].id, 'time_remaining_reaches');
+  assert.deepStrictEqual(cards[0].tokens, { remaining: 20 });
+  assert.deepStrictEqual(cards[0].state, { previous: 30, current: 20 }, 'state carries both sides for the run listener');
+  cards.length = 0;
+
+  await device._syncTimeRemaining(statusWithMinutes(0, false)); // session ends -> not heating
+  assert.strictEqual(cards.length, 0, 'the drop to 0 when heating stops does not fire it');
+  console.log('OK: time_remaining_reaches fires on a downward crossing while heating, carrying previous+current for the run listener');
 }
 
 async function testDutyCycleLowersTheEstimateAtTemp() {
@@ -831,6 +885,8 @@ async function testStartProfilePickerFillsTheSliders() {
   await testFormatDeviceDateTimeUsesTheHomeyTimezone();
   await testGetConfigExposesRemoteBlocked();
   await testCurrentTemperatureChangedFiresOnEveryChange();
+  await testUpToTemperatureTriggerFiresOncePerHeatUp();
+  await testTimeRemainingReachesTriggerFiresOnDownwardCrossing();
   await testDutyCycleLowersTheEstimateAtTemp();
   await testSetMeasuredPowerFeedsCapability();
   await testProfileDefaultsSeededOverNull();

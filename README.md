@@ -52,9 +52,11 @@ scheduled start*, *set the measured power*;
 conditions *time remaining below [min]*, *remote start is (not) blocked*,
 *a start is (not) scheduled*;
 triggers *the current temperature changed* (Homey's own `measure_temperature`
-defaults only offer threshold cards, no plain "changed" one), *remote start
-became blocked / available*, *a sauna session ended* (with `duration`,
-`temperature`, `humidity`, `kwh`, `cost` tokens).
+defaults only offer threshold cards, no plain "changed" one), *the sauna
+reached its target temperature*, *remaining time drops below [min]*, *the
+sauna will be done heating soon*, *remote start became blocked / available*,
+*a sauna session ended* (with `duration`, `temperature`, `humidity`, `kwh`,
+`cost` tokens).
 
 **Adaptive polling** — fast while heating, or while the door is open / a remote
 start is blocked; slow while idle. Any command refreshes immediately regardless.

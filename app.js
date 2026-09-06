@@ -24,6 +24,9 @@ class HuumApp extends Homey.App {
     this.homey.flow.getConditionCard('remote_control_is_blocked')
       .registerRunListener(async (args) => args.device.isRemoteBlocked());
 
+    this.homey.flow.getDeviceTriggerCard('time_remaining_reaches')
+      .registerRunListener(async (args, state) => state.previous >= args.minutes && state.current < args.minutes);
+
     this.homey.flow.getActionCard('set_measured_power')
       .registerRunListener(async (args) => {
         await args.device.setMeasuredPower(args.watts);

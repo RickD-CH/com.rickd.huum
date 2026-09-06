@@ -38,6 +38,7 @@ class HuumDevice extends Homey.Device {
       return;
     }
     this._wasBelowFinishingSoonThreshold = false;
+    this._wasUpToTemperature = false;
     this._powerMeterInstance = null;
 
     await this._migrateLegacySettings();
@@ -989,6 +990,7 @@ class HuumDevice extends Homey.Device {
 
     await this._syncWarnings(status);
     await this._syncRemoteState(status);
+    await this._syncUpToTemperature(status);
     await this._syncSafetyAlarms(status);
     await this._syncTimeRemaining(status);
     await this._trackSessionStats(status);
@@ -1086,6 +1088,32 @@ class HuumDevice extends Homey.Device {
     }
   }
 
+  /**
+   * Fires "the sauna reached its target temperature" once per heat-up, on
+   * the edge where the measured temperature first meets the target. The
+   * latch clears when heating stops or the temperature falls a clear 2 °C
+   * back below target, so a thermostat oscillating around the setpoint
+   * doesn't re-fire it.
+   */
+  async _syncUpToTemperature(status) {
+    const measured = status.temperature;
+    const target = typeof status.targetTemperature === 'number'
+      ? status.targetTemperature
+      : this.getCapabilityValue('target_temperature');
+    const canEval = !!status.isHeating && typeof measured === 'number' && typeof target === 'number';
+    const ready = canEval && measured >= target;
+
+    if (ready && !this._wasUpToTemperature) {
+      this.homey.flow.getDeviceTriggerCard('sauna_up_to_temperature')
+        .trigger(this, { temperature: measured })
+        .catch((err) => this.error('Failed to trigger sauna_up_to_temperature:', err.message));
+    }
+
+    if (!status.isHeating) this._wasUpToTemperature = false;
+    else if (ready) this._wasUpToTemperature = true;
+    else if (canEval && measured < target - 2) this._wasUpToTemperature = false;
+  }
+
   async _syncTimeRemaining(status) {
     if (!this.hasCapability('huum_time_remaining')) return;
 
@@ -1095,6 +1123,16 @@ class HuumDevice extends Homey.Device {
       minutesRemaining = Math.max(0, Math.round(secondsRemaining / 60));
     }
     await this._setCapabilitySafe('huum_time_remaining', minutesRemaining);
+
+    // Per-Flow "drops below [X] minutes" trigger — fires on the downward
+    // crossing while heating (each flow's run listener checks its own [X]).
+    const prevRemaining = this._lastTimeRemaining;
+    this._lastTimeRemaining = minutesRemaining;
+    if (status.isHeating && typeof prevRemaining === 'number' && minutesRemaining < prevRemaining) {
+      this.homey.flow.getDeviceTriggerCard('time_remaining_reaches')
+        .trigger(this, { remaining: minutesRemaining }, { previous: prevRemaining, current: minutesRemaining })
+        .catch((err) => this.error('Failed to trigger time_remaining_reaches:', err.message));
+    }
 
     const threshold = this._cfg('finishingSoonThresholdMinutes', DEFAULT_FINISHING_SOON_MINUTES);
     const isBelowThreshold = status.isHeating && minutesRemaining > 0 && minutesRemaining <= threshold;

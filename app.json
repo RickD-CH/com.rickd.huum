@@ -215,6 +215,65 @@
         ]
       },
       {
+        "id": "sauna_up_to_temperature",
+        "title": {
+          "en": "The sauna reached its target temperature",
+          "de": "Die Sauna hat die Zieltemperatur erreicht"
+        },
+        "hint": {
+          "en": "Fires once each heat-up when the measured temperature first reaches the target — good for a \"sauna is ready\" light or message.",
+          "de": "Feuert einmal pro Aufheizvorgang, sobald die gemessene Temperatur die Zieltemperatur erreicht — gut für ein \"Sauna bereit\"-Licht oder eine Meldung."
+        },
+        "args": [
+          { "type": "device", "name": "device", "filter": "driver_id=uku" }
+        ],
+        "tokens": [
+          {
+            "name": "temperature",
+            "type": "number",
+            "title": {
+              "en": "Temperature (°C)",
+              "de": "Temperatur (°C)"
+            },
+            "example": 85
+          }
+        ]
+      },
+      {
+        "id": "time_remaining_reaches",
+        "title": {
+          "en": "Remaining time drops below",
+          "de": "Restzeit fällt unter"
+        },
+        "titleFormatted": {
+          "en": "Remaining time drops below [[minutes]] minutes",
+          "de": "Restzeit fällt unter [[minutes]] Minuten"
+        },
+        "hint": {
+          "en": "Fires once each heat-up when the minutes left first fall below the value you set here.",
+          "de": "Feuert einmal pro Aufheizvorgang, sobald die verbleibenden Minuten erstmals unter den hier gesetzten Wert fallen."
+        },
+        "args": [
+          { "type": "device", "name": "device", "filter": "driver_id=uku" },
+          {
+            "type": "number",
+            "name": "minutes",
+            "title": { "en": "Minutes", "de": "Minuten" },
+            "min": 1,
+            "max": 180,
+            "value": 10
+          }
+        ],
+        "tokens": [
+          {
+            "name": "remaining",
+            "type": "number",
+            "title": { "en": "Minutes remaining", "de": "Verbleibende Minuten" },
+            "example": 9
+          }
+        ]
+      },
+      {
         "id": "huum_finishing_soon",
         "title": {
           "en": "The sauna will be done heating soon",

@@ -36,7 +36,7 @@
     "de": "Das Zeitformat dieser Anzeigen (24h oder AM/PM) richtet sich neu nach der Sprache deiner Homey."
   },
   "0.7.9": {
-    "en": "New Flow cards to schedule, cancel and check a scheduled start, plus a fix and a master switch for the Timeline notifications.",
-    "de": "Neue Flow-Karten zum Planen, Abbrechen und Prüfen eines geplanten Starts, plus Korrektur und Hauptschalter fuer die Timeline-Meldungen."
+    "en": "More Flow cards: schedule/cancel/check a scheduled start, \"reached target temperature\", \"remaining time drops below X\". Plus a fix and a master switch for the Timeline notifications.",
+    "de": "Mehr Flow-Karten: geplanten Start setzen/abbrechen/prüfen, \"Zieltemperatur erreicht\", \"Restzeit fällt unter X\". Plus Korrektur und Hauptschalter fuer die Timeline-Meldungen."
   }
 }
