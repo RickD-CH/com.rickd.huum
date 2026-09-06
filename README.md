@@ -47,9 +47,10 @@ and a per-kWh cost.
 
 **Flow** — actions *start at [temp] °C and [humidity] %*, *start with profile
 [1-3]*, *save current settings as profile [1-3]*, *schedule a start on [date]
-at [time] with profile [1-3]* (date/time in the Homey's timezone), *set the
-measured power*;
-conditions *time remaining below [min]*, *remote start is (not) blocked*;
+at [time] with profile [1-3]* (date/time in the Homey's timezone), *cancel the
+scheduled start*, *set the measured power*;
+conditions *time remaining below [min]*, *remote start is (not) blocked*,
+*a start is (not) scheduled*;
 triggers *the current temperature changed* (Homey's own `measure_temperature`
 defaults only offer threshold cards, no plain "changed" one), *remote start
 became blocked / available*, *a sauna session ended* (with `duration`,

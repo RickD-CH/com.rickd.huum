@@ -340,6 +340,16 @@
         "args": [
           { "type": "device", "name": "device", "filter": "driver_id=uku" }
         ]
+      },
+      {
+        "id": "scheduled_start_is_set",
+        "title": {
+          "en": "A start !{{is|is not}} scheduled",
+          "de": "Ein Start !{{ist|ist nicht}} geplant"
+        },
+        "args": [
+          { "type": "device", "name": "device", "filter": "driver_id=uku" }
+        ]
       }
     ],
     "actions": [
@@ -518,6 +528,20 @@
               { "id": "profile3", "title": { "en": "Profile 3", "de": "Profil 3" } }
             ]
           }
+        ]
+      },
+      {
+        "id": "cancel_scheduled_start",
+        "title": {
+          "en": "Cancel the scheduled start",
+          "de": "Geplanten Start abbrechen"
+        },
+        "hint": {
+          "en": "Clears this sauna's pending scheduled start, if any. Does nothing to a session that's already running.",
+          "de": "Löscht den anstehenden geplanten Start dieser Sauna, falls einer gesetzt ist. Eine bereits laufende Sitzung bleibt unberührt."
+        },
+        "args": [
+          { "type": "device", "name": "device", "filter": "driver_id=uku" }
         ]
       }
     ]

@@ -614,7 +614,15 @@ async function testScheduleStartFromFlowParsesInTheHomeyTimezone() {
     (err) => err.message === enLocale.errors.booking_bad_datetime,
     'an unparseable date/time gets its own message',
   );
-  console.log('OK: the "schedule a sauna start" Flow action parses date+time in the Homey\'s timezone and books the profile');
+
+  // The "is a start scheduled" condition and the "cancel" action just read
+  // and clear the same booking.
+  assert.strictEqual(!!device.getBooking(), true, '"a start is scheduled" condition -> true while one is set');
+  await device.clearBooking();
+  assert.strictEqual(!!device.getBooking(), false, '"cancel the scheduled start" action clears it');
+  assert.strictEqual(device.getCapabilityValue('huum_booking_status'), enLocale.labels.not_scheduled, 'and the tile goes back to "not scheduled"');
+
+  console.log('OK: the schedule / cancel / "is scheduled?" Flow cards all act on the one-per-device booking');
 }
 
 async function testBookingNotificationSubstitutesTheDeviceName() {

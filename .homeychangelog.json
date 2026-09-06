@@ -36,7 +36,7 @@
     "de": "Das Zeitformat dieser Anzeigen (24h oder AM/PM) richtet sich neu nach der Sprache deiner Homey."
   },
   "0.7.9": {
-    "en": "New Flow action to schedule a start by date, time and profile, plus a fix and a master switch for the Timeline notifications.",
-    "de": "Neue Flow-Aktion, um einen Start nach Datum, Zeit und Profil zu planen, plus Korrektur und Hauptschalter fuer die Timeline-Meldungen."
+    "en": "New Flow cards to schedule, cancel and check a scheduled start, plus a fix and a master switch for the Timeline notifications.",
+    "de": "Neue Flow-Karten zum Planen, Abbrechen und Prüfen eines geplanten Starts, plus Korrektur und Hauptschalter fuer die Timeline-Meldungen."
   }
 }
