@@ -357,6 +357,64 @@ class HuumDevice extends Homey.Device {
     }
   }
 
+  /**
+   * "Schedule a sauna start" Flow action — date + time (in the Homey's own
+   * timezone) + a profile. Sets the same one-per-device booking the app
+   * settings page uses.
+   */
+  async scheduleStartFromFlow(dateStr, timeStr, profileId) {
+    const at = this._flowWallTimeToMs(dateStr, timeStr);
+    if (!Number.isFinite(at)) {
+      throw new Error(this.homey.__('errors.booking_bad_datetime'));
+    }
+    await this.setBooking({ at, profile: profileId });
+  }
+
+  /**
+   * A Homey `date` arg ("YYYY-MM-DD" or "DD-MM-YYYY") + a `time` arg
+   * ("HH:mm"), read as wall-clock time in the Homey's configured timezone,
+   * to an epoch ms. Node on Homey runs in UTC, so a naive parse would be
+   * off by the zone offset (same gotcha as _formatDeviceDateTime).
+   */
+  _flowWallTimeToMs(dateStr, timeStr) {
+    const dm = String(dateStr).match(/^(\d{1,4})[-/.](\d{1,2})[-/.](\d{1,4})$/);
+    const tm = String(timeStr).match(/^(\d{1,2}):(\d{2})/);
+    if (!dm || !tm) return NaN;
+    const a = Number(dm[1]);
+    const c = Number(dm[3]);
+    // Whichever end is the 4-digit (or clearly > 31) group is the year.
+    const [y, mo, d] = a > 31 ? [a, Number(dm[2]), c] : [c, Number(dm[2]), a];
+    const h = Number(tm[1]);
+    const mi = Number(tm[2]);
+    if (![y, mo, d, h, mi].every(Number.isFinite) || mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59) {
+      return NaN;
+    }
+    let timeZone;
+    try { timeZone = this.homey.clock.getTimezone(); } catch (err) { /* fall through — treat as UTC */ }
+    const guess = Date.UTC(y, mo - 1, d, h, mi);
+    if (!timeZone) return guess;
+    // How far ahead of UTC is `timeZone`? Re-check once at the corrected
+    // instant so a DST boundary between the two doesn't slip through.
+    const off1 = HuumDevice._tzOffsetMs(new Date(guess), timeZone);
+    const off2 = HuumDevice._tzOffsetMs(new Date(guess - off1), timeZone);
+    return guess - off2;
+  }
+
+  /** ms by which `timeZone`'s wall clock is ahead of UTC at instant `date`. */
+  static _tzOffsetMs(date, timeZone) {
+    const p = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hourCycle: 'h23',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    }).formatToParts(date).reduce((o, x) => { o[x.type] = x.value; return o; }, {});
+    return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - date.getTime();
+  }
+
   _clearBookingTimer() {
     if (this._bookingTimeout) { this.homey.clearTimeout(this._bookingTimeout); this._bookingTimeout = null; }
   }

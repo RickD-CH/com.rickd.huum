@@ -46,7 +46,9 @@ session's kWh taken from the meter's own counter), or a value pushed by a Flow
 and a per-kWh cost.
 
 **Flow** — actions *start at [temp] °C and [humidity] %*, *start with profile
-[1-3]*, *save current settings as profile [1-3]*, *set the measured power*;
+[1-3]*, *save current settings as profile [1-3]*, *schedule a start on [date]
+at [time] with profile [1-3]* (date/time in the Homey's timezone), *set the
+measured power*;
 conditions *time remaining below [min]*, *remote start is (not) blocked*;
 triggers *the current temperature changed* (Homey's own `measure_temperature`
 defaults only offer threshold cards, no plain "changed" one), *remote start

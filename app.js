@@ -38,6 +38,11 @@ class HuumApp extends Homey.App {
       .registerRunListener(async (args) => {
         await args.device.saveProfile(args.profile);
       });
+
+    this.homey.flow.getActionCard('schedule_start')
+      .registerRunListener(async (args) => {
+        await args.device.scheduleStartFromFlow(args.date, args.time, args.profile);
+      });
   }
 
   /**

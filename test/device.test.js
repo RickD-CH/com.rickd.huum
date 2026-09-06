@@ -584,6 +584,39 @@ async function testScheduledStartFires() {
   console.log('OK: a scheduled start fires at its time with the booked temperature/humidity, then clears, updating the tile');
 }
 
+async function testScheduleStartFromFlowParsesInTheHomeyTimezone() {
+  const device = makeDevice({ capabilities: { huum_booking_status: null } });
+  // homey.clock mock = Europe/Zurich (UTC+2 in June).
+
+  // 14:30 on 2026-06-15, wall time in Zurich, is 12:30 UTC.
+  const wantAt = Date.UTC(2026, 5, 15, 12, 30);
+  assert.strictEqual(device._flowWallTimeToMs('2026-06-15', '14:30'), wantAt, 'YYYY-MM-DD parsed in the Homey timezone');
+  assert.strictEqual(device._flowWallTimeToMs('15-06-2026', '14:30'), wantAt, 'DD-MM-YYYY parsed the same way');
+  assert.ok(Number.isNaN(device._flowWallTimeToMs('not-a-date', '14:30')), 'garbage in -> NaN');
+  assert.ok(Number.isNaN(device._flowWallTimeToMs('2026-06-15', '99:99')), 'out-of-range time -> NaN');
+
+  // The action itself creates the same one-per-device booking.
+  const future = new Date(Date.now() + 3 * 24 * 3600 * 1000);
+  const dateStr = `${future.getUTCFullYear()}-${String(future.getUTCMonth() + 1).padStart(2, '0')}-${String(future.getUTCDate()).padStart(2, '0')}`;
+  await device.scheduleStartFromFlow(dateStr, '06:00', 'profile2');
+  const b = device.getBooking();
+  assert.ok(b && b.profile === 'profile2', 'the Flow action booked the chosen profile');
+  assert.strictEqual(device._flowWallTimeToMs(dateStr, '06:00'), b.at, 'stored at matches the timezone-aware parse');
+  assert.notStrictEqual(device.getCapabilityValue('huum_booking_status'), enLocale.labels.not_scheduled, 'and the device tile updated');
+
+  await assert.rejects(
+    () => device.scheduleStartFromFlow('2020-01-01', '06:00', 'profile1'),
+    /future/i,
+    'a date in the past is rejected',
+  );
+  await assert.rejects(
+    () => device.scheduleStartFromFlow('rubbish', 'rubbish', 'profile1'),
+    (err) => err.message === enLocale.errors.booking_bad_datetime,
+    'an unparseable date/time gets its own message',
+  );
+  console.log('OK: the "schedule a sauna start" Flow action parses date+time in the Homey\'s timezone and books the profile');
+}
+
 async function testBookingNotificationSubstitutesTheDeviceName() {
   // Homey.__() substitutes __varName__, not {{varName}} — this is exactly
   // the bug the user spotted live (a literal "{{name}}" in the Timeline).
@@ -800,6 +833,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testTargetsNotOverwrittenWhileOff();
   await testStartProfilePickerFillsTheSliders();
   await testScheduledStartFires();
+  await testScheduleStartFromFlowParsesInTheHomeyTimezone();
   await testBookingNotificationSubstitutesTheDeviceName();
   await testTimelineNotificationsToggleDisablesAll();
   await testClearBookingResetsTheTile();

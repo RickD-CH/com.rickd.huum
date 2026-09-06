@@ -474,6 +474,51 @@
             ]
           }
         ]
+      },
+      {
+        "id": "schedule_start",
+        "title": {
+          "en": "Schedule a sauna start",
+          "de": "Sauna-Start einplanen"
+        },
+        "titleFormatted": {
+          "en": "Schedule the sauna to start on [[date]] at [[time]] with profile [[profile]]",
+          "de": "Sauna-Start planen für [[date]] um [[time]] mit Profil [[profile]]"
+        },
+        "hint": {
+          "en": "Sets the same one-per-device scheduled start as the app settings page. Date and time are in your Homey's timezone; a start missed by more than 30 minutes is dropped. Replaces any existing scheduled start.",
+          "de": "Setzt denselben geplanten Start (einer pro Gerät) wie die App-Einstellungsseite. Datum und Zeit gelten in der Zeitzone deiner Homey; ein um mehr als 30 Minuten verpasster Start wird verworfen. Ersetzt einen bereits geplanten Start."
+        },
+        "args": [
+          {
+            "type": "device",
+            "name": "device",
+            "filter": "driver_id=uku"
+          },
+          {
+            "type": "date",
+            "name": "date",
+            "title": { "en": "Date", "de": "Datum" }
+          },
+          {
+            "type": "time",
+            "name": "time",
+            "title": { "en": "Time", "de": "Zeit" }
+          },
+          {
+            "type": "dropdown",
+            "name": "profile",
+            "title": {
+              "en": "Profile",
+              "de": "Profil"
+            },
+            "values": [
+              { "id": "profile1", "title": { "en": "Profile 1", "de": "Profil 1" } },
+              { "id": "profile2", "title": { "en": "Profile 2", "de": "Profil 2" } },
+              { "id": "profile3", "title": { "en": "Profile 3", "de": "Profil 3" } }
+            ]
+          }
+        ]
       }
     ]
   },
