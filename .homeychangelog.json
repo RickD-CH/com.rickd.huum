@@ -46,5 +46,9 @@
   "0.8.1": {
     "en": "The \"schedule a start\" Flow action now takes \"today\" or \"tomorrow\" plus a time, instead of a fixed calendar date.",
     "de": "Die Flow-Aktion \"Sauna-Start einplanen\" nimmt neu \"Heute\" oder \"Morgen\" plus eine Zeit statt eines festen Datums."
+  },
+  "0.8.2": {
+    "en": "Clearer in the store that this is the unofficial companion app for HUUM UKU owners who want more than the official app.",
+    "de": "Im Store klarer als inoffizielle Ergänzungs-App für HUUM-UKU-Besitzer gekennzeichnet, die mehr wollen als die offizielle App."
   }
 }
