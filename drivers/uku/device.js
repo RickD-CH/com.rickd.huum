@@ -3,6 +3,7 @@
 const Homey = require('homey');
 const {
   HuumApi, HuumAuthError, HuumSafetyError, STEAMER_ERROR_TEXTS, CONFIG_FLAGS, configHasFlag,
+  getMaxHumidityForTemperature,
 } = require('../../lib/HuumApi');
 
 const DEFAULT_POLL_INTERVAL_S = 30;
@@ -239,11 +240,31 @@ class HuumDevice extends Homey.Device {
       profiles.forEach((p, i) => {
         const n = i + 1;
         if (p && p.name != null) patch[`profile${n}Name`] = String(p.name).slice(0, 40);
+
+        // Track the profile's *effective* temperature/humidity (falling back
+        // to what's already stored for a field this save doesn't touch) so
+        // the humidity-limit check below sees the real resulting combo.
+        let temperature = this._cfg(`profile${n}Temperature`, null);
         if (p && p.temperature != null && !Number.isNaN(Number(p.temperature))) {
-          patch[`profile${n}Temperature`] = Math.round(Number(p.temperature));
+          temperature = Math.round(Number(p.temperature));
+          patch[`profile${n}Temperature`] = temperature;
         }
+        let humidity = this._cfg(`profile${n}Humidity`, null);
         if (p && p.humidity != null && !Number.isNaN(Number(p.humidity))) {
-          patch[`profile${n}Humidity`] = Math.round(Number(p.humidity));
+          humidity = Math.round(Number(p.humidity));
+          patch[`profile${n}Humidity`] = humidity;
+        }
+
+        // Same steamer duty-cycle limit HuumApi#turnOn enforces at start
+        // time — checked here too so a profile can't be *saved* in a state
+        // that's guaranteed to fail every time it's used to start the sauna.
+        if (typeof temperature === 'number' && typeof humidity === 'number' && humidity > 0) {
+          const maxHumidity = getMaxHumidityForTemperature(temperature);
+          if (humidity > maxHumidity) {
+            const err = new Error(this.homey.__('errors.humidity_exceeds_max', { humidity, maxHumidity, temperature }));
+            err.code = 'humidity_exceeds_max';
+            throw err;
+          }
         }
       });
     }
@@ -885,7 +906,9 @@ class HuumDevice extends Homey.Device {
         throw doorErr;
       }
       if (err.code === 'humidity_exceeds_max') {
-        throw new Error(this.homey.__('errors.humidity_exceeds_max', err.data));
+        const humidityErr = new Error(this.homey.__('errors.humidity_exceeds_max', err.data));
+        humidityErr.code = 'humidity_exceeds_max';
+        throw humidityErr;
       }
       // Anything else (network error, temperature out of range, ...) is
       // re-thrown as-is — Homey shows err.message to the user either way,

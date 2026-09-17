@@ -25,7 +25,7 @@ const APP_DIR = path.join(__dirname, '..');
 const enLocale = require(path.join(APP_DIR, 'locales', 'en.json'));
 
 const HuumDevice = require(path.join(APP_DIR, 'drivers', 'uku', 'device.js'));
-const { HuumAuthError, HuumSafetyError } = require(path.join(APP_DIR, 'lib', 'HuumApi.js'));
+const { HuumAuthError, HuumSafetyError, HuumApiError } = require(path.join(APP_DIR, 'lib', 'HuumApi.js'));
 
 function makeHomeyApi() {
   const timers = [];
@@ -484,6 +484,34 @@ async function testProfileDefaultsSeededOverNull() {
   console.log('OK: the 3 default profiles are seeded even when getStoreValue() returns null');
 }
 
+async function testSetConfigRejectsProfileHumidityAboveMax() {
+  // Regression: the settings page let a profile be saved with a humidity
+  // above what the steamer accepts at that temperature (e.g. 50°C/80%,
+  // real UKU max is 55%) — it would then fail every single time it's used
+  // to start the sauna. setConfig() must reject the save instead.
+  const device = makeDevice({ capabilities: {} });
+
+  await assert.rejects(
+    () => device.setConfig({ profiles: [{ name: 'Feucht', temperature: 50, humidity: 80 }] }),
+    (err) => err.code === 'humidity_exceeds_max',
+  );
+  assert.strictEqual(device.getStoreValue('profile1Humidity'), null, 'the invalid save must not be persisted');
+
+  // A valid combo (55% is exactly the max at 50°C) still saves fine.
+  await device.setConfig({ profiles: [{ name: 'Feucht', temperature: 50, humidity: 55 }] });
+  assert.strictEqual(device.getStoreValue('profile1Humidity'), 55);
+
+  // Changing only the temperature of an already-saved profile must also be
+  // checked against its existing (unchanged) humidity of 55%: raising the
+  // temperature to 60°C drops the allowed max to 40%.
+  await assert.rejects(
+    () => device.setConfig({ profiles: [{ temperature: 60 }] }),
+    (err) => err.code === 'humidity_exceeds_max',
+  );
+
+  console.log('OK: setConfig() rejects a profile humidity above the steamer\'s max for that temperature');
+}
+
 async function testSessionEnergyAndCost() {
   const device = makeDevice({ capabilities: { huum_session_count: 0, onoff: false } });
   device.__store.electricityPrice = 0.30;
@@ -803,7 +831,25 @@ async function testFailedScheduledStartIsRecordedWithReason() {
   assert.strictEqual(rec.reason, 'other', 'an unclassified failure still lands in the history');
   assert.strictEqual(rec.message, 'network blip');
 
-  console.log('OK: a scheduled start that fails on the day is recorded in the history with its reason (remote/door/other)');
+  // Humidity-exceeds-max: _start() re-wraps the HuumApi error with a
+  // translated message and must preserve err.code, or this falls through to
+  // the generic 'other' bucket instead of its own reason.
+  const humidityDevice = makeDevice({ capabilities: { onoff: false, target_temperature: 50 } });
+  humidityDevice.api = {
+    turnOn: async () => {
+      throw new HuumApiError('too humid', undefined, {
+        code: 'humidity_exceeds_max', data: { humidity: 80, maxHumidity: 55, temperature: 50 },
+      });
+    },
+    getStatus: async () => { throw new Error('offline'); },
+  };
+  humidityDevice.__store.booking = { at: Date.now() - 1000, profile: null, temperature: 50, humidity: 80 };
+  await humidityDevice._fireBooking();
+  rec = humidityDevice.getStoreValue('sessionHistory')[0];
+  assert.strictEqual(rec.failed, true);
+  assert.strictEqual(rec.reason, 'humidity_exceeds_max', 'a humidity-limit rejection keeps its own reason, not "other"');
+
+  console.log('OK: a scheduled start that fails on the day is recorded in the history with its reason (remote/door/humidity/other)');
 }
 
 async function testAutoOffSurvivesRestartAndClearsWhenOff() {
@@ -895,6 +941,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testDutyCycleLowersTheEstimateAtTemp();
   await testSetMeasuredPowerFeedsCapability();
   await testProfileDefaultsSeededOverNull();
+  await testSetConfigRejectsProfileHumidityAboveMax();
   await testSessionEnergyAndCost();
   await testSessionEnergyFromMeterDelta();
   await testWaterAlarmIgnoresZeroSteamerError();
