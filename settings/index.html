@@ -13,12 +13,12 @@
     :root, :root[data-theme="light"] {
       --bg: #f3f3f5; --fg: #1c1c1e; --muted: #6b6b72; --card: #ffffff;
       --border: rgba(0,0,0,.12); --field: #ffffff; --field-border: rgba(0,0,0,.22);
-      --accent: #E85D2B; --ok: #2e9e4f; --err: #e5484d;
+      --accent: #E85D2B; --ok: #2e9e4f; --err: #e5484d; --warn: #b06a00;
     }
     :root[data-theme="dark"] {
       --bg: #16171a; --fg: #f2f2f4; --muted: #9c9ca4; --card: #242529;
       --border: rgba(255,255,255,.13); --field: #2f3035; --field-border: rgba(255,255,255,.22);
-      --accent: #ff7a4d; --ok: #4cc46a; --err: #ff6b6e;
+      --accent: #ff7a4d; --ok: #4cc46a; --err: #ff6b6e; --warn: #e0a44a;
     }
     html, body { background: var(--bg) !important; color: var(--fg) !important; }
     body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 14px; line-height: 1.45; }
@@ -70,6 +70,11 @@
     .radio label { margin: 0; color: var(--fg); }
     .saved { color: var(--ok); font-size: 13px; }
     .err { color: var(--err); font-size: 13px; margin-top: 8px; }
+    .notice { color: var(--warn); font-size: 13px; margin-top: 8px; }
+    .limits-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+    .limits-table th, .limits-table td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--border); }
+    .limits-table th { color: var(--muted); font-weight: 600; }
+    details.limits summary { cursor: pointer; font-size: 13px; color: var(--muted); }
     [hidden] { display: none !important; }
   </style>
 </head>
@@ -158,12 +163,17 @@
 
       <h2 id="h-profiles">Profiles</h2>
       <div class="card">
+        <details class="limits">
+          <summary id="l-limits-summary">Maximum humidity by temperature</summary>
+          <table class="limits-table" id="limits-table"></table>
+        </details>
         <div id="profiles"></div>
         <div class="btnrow">
           <button id="save-profiles" type="button" class="action">Save</button>
           <button id="reset-profiles" type="button" class="ghost">Reset to defaults</button>
           <span class="saved" id="saved-profiles" hidden>Saved</span>
         </div>
+        <div class="notice" id="profiles-clamp-notice" hidden></div>
       </div>
     </div>
 
@@ -275,6 +285,8 @@
       meterNone: 'Kein Messgerät gefunden.',
       meterNoPerm: 'Geräteliste nicht verfügbar (fehlende Berechtigung). Nutze die kW-Schätzung.',
       save: 'Speichern', saved: 'Gespeichert', resetProfiles: 'Auf Standard zurücksetzen', noSteamer: 'kein Verdampfer',
+      limitsSummary: 'Maximal erlaubte Feuchte je Temperatur', limitsTempCol: 'Temperatur (°C)', limitsMaxCol: 'Max. Feuchte (%)',
+      clampedNotice: 'Feuchte automatisch reduziert (Maximum für die gewählte Temperatur):', clampAt: 'bei',
       about: 'Unabhängige, inoffizielle App für HUUM-UKU-Saunas — nicht mit HUUM verbunden.',
       forum: 'Forum',
       empty: 'Noch keine Sauna gekoppelt. Füge zuerst eine unter "Geräte" hinzu.',
@@ -323,6 +335,8 @@
       meterNone: 'No power-measuring device found.',
       meterNoPerm: 'Device list unavailable (missing permission). Use the kW estimate.',
       save: 'Save', saved: 'Saved', resetProfiles: 'Reset to defaults', noSteamer: 'no steamer',
+      limitsSummary: 'Maximum humidity allowed by temperature', limitsTempCol: 'Temperature (°C)', limitsMaxCol: 'Max humidity (%)',
+      clampedNotice: 'Humidity automatically reduced (maximum for the chosen temperature):', clampAt: 'at',
       about: 'Independent, unofficial app for HUUM UKU saunas — not affiliated with HUUM.',
       forum: 'Community forum',
       empty: 'No sauna paired yet. Add one from Devices first.',
@@ -345,6 +359,15 @@
     var saunas = [];
     var currentId = null;
     var timer = null;
+
+    // Mirrors HUMIDITY_THRESHOLDS in lib/HuumApi.js — shown here only, kept
+    // in sync by hand (10 fixed entries, not expected to change often).
+    var HUMIDITY_LIMITS = [
+      { maxTemp: 45, maxHumidity: 90 }, { maxTemp: 50, maxHumidity: 55 }, { maxTemp: 55, maxHumidity: 45 },
+      { maxTemp: 60, maxHumidity: 40 }, { maxTemp: 65, maxHumidity: 35 }, { maxTemp: 70, maxHumidity: 30 },
+      { maxTemp: 75, maxHumidity: 25 }, { maxTemp: 80, maxHumidity: 20 }, { maxTemp: 85, maxHumidity: 15 },
+      { maxTemp: 90, maxHumidity: 10 },
+    ];
 
     function $(id) { return document.getElementById(id); }
     function setTxt(id, txt) { var el = $(id); if (el) el.textContent = txt; }
@@ -423,6 +446,7 @@
       setTxt('h-info', T.info); setTxt('h-stats', T.stats);
       setTxt('h-recent', T.hRecent); setTxt('adopt-meter', T.adoptMeter); setTxt('saved-adopt', T.saved);
       setTxt('h-adv', T.hAdv); setTxt('h-profiles', T.hProfiles);
+      setTxt('l-limits-summary', T.limitsSummary); renderHumidityLimitsTable();
       setTxt('btn-refresh', T.refresh); setTxt('data-stamp', T.dataLoading);
       setTxt('h-booking', T.hBooking);
       setTxt('l-bk-when', T.bkWhen); setTxt('l-bk-profile', T.bkProfile);
@@ -515,6 +539,28 @@
           return '<div class="row"><span class="k">' + esc(head) + '</span><span class="v">'
             + esc(parts.join(' · ')) + '</span></div>';
         }).join('');
+      }
+    }
+
+    function renderHumidityLimitsTable() {
+      var rows = HUMIDITY_LIMITS.map(function (t) {
+        return '<tr><td>≤ ' + t.maxTemp + '</td><td>' + t.maxHumidity + '%</td></tr>';
+      }).join('');
+      $('limits-table').innerHTML = '<tr><th>' + esc(T.limitsTempCol) + '</th><th>' + esc(T.limitsMaxCol) + '</th></tr>' + rows;
+    }
+
+    function renderProfilesAndClampNotice(cfg) {
+      renderProfiles(cfg);
+      var notice = $('profiles-clamp-notice');
+      if (cfg.humidityClamped && cfg.humidityClamped.length) {
+        var lines = cfg.humidityClamped.map(function (c) {
+          return '• ' + esc(c.name) + ': ' + c.requested + '% → ' + c.maxHumidity
+            + '% (' + esc(T.clampAt) + ' ' + c.temperature + '°C)';
+        });
+        notice.innerHTML = esc(T.clampedNotice) + '<br>' + lines.join('<br>');
+        notice.hidden = false;
+      } else {
+        notice.hidden = true;
       }
     }
 
@@ -763,7 +809,7 @@
       });
 
       $('reset-profiles').addEventListener('click', function () {
-        saveConfig({ resetProfiles: true }, 'saved-profiles', renderProfiles);
+        saveConfig({ resetProfiles: true }, 'saved-profiles', renderProfilesAndClampNotice);
       });
       $('save-profiles').addEventListener('click', function () {
         var profiles = [0, 1, 2].map(function (idx) {
@@ -774,7 +820,7 @@
             humidity: g('humidity').value === '' ? null : Number(g('humidity').value),
           };
         });
-        saveConfig({ profiles: profiles }, 'saved-profiles', renderProfiles);
+        saveConfig({ profiles: profiles }, 'saved-profiles', renderProfilesAndClampNotice);
       });
       $('save-advanced').addEventListener('click', function () {
         saveConfig({ advanced: {

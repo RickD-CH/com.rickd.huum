@@ -236,6 +236,7 @@ class HuumDevice extends Homey.Device {
         patch.totalCost = price > 0 ? round2(m * price) : (this.getStoreValue('totalCost') || 0);
       }
     }
+    const humidityClamped = [];
     if (Array.isArray(profiles)) {
       profiles.forEach((p, i) => {
         const n = i + 1;
@@ -261,10 +262,19 @@ class HuumDevice extends Homey.Device {
         // Clamped rather than rejected: the settings page re-renders from
         // the returned config right after save, so the owner sees the
         // corrected value immediately instead of losing the whole edit.
+        // humidityClamped is reported back so the page can tell the owner
+        // *why* the number they typed changed underneath them.
         if (typeof temperature === 'number' && typeof humidity === 'number' && humidity > 0) {
           const maxHumidity = getMaxHumidityForTemperature(temperature);
           if (humidity > maxHumidity) {
             patch[`profile${n}Humidity`] = maxHumidity;
+            humidityClamped.push({
+              index: i,
+              name: patch[`profile${n}Name`] || this._cfg(`profile${n}Name`, `Profil ${n}`),
+              temperature,
+              requested: humidity,
+              maxHumidity,
+            });
           }
         }
       });
@@ -298,7 +308,9 @@ class HuumDevice extends Homey.Device {
     await this._setCfg(patch);
     this._scheduleNextPoll();
     await this.applyPowerConfig();
-    return this.getConfig();
+    const config = this.getConfig();
+    if (humidityClamped.length) config.humidityClamped = humidityClamped;
+    return config;
   }
 
   async applyPowerConfig() {
@@ -742,6 +754,7 @@ class HuumDevice extends Homey.Device {
     if (this.hasCapability('target_humidity')) {
       this.registerCapabilityListener('target_humidity', async (value) => {
         const humidityPercent = Math.round(value * 100);
+        await this._updateHumidityRidesMaxFlag(value);
         if (!this._isHeating()) {
           // Keep it locally; it will be sent along with the next start.
           await this.setCapabilityValue('target_humidity', value).catch(this.error);
@@ -787,7 +800,13 @@ class HuumDevice extends Homey.Device {
         await this._setCapabilitySafe('target_temperature', temperature);
         if (this.hasCapability('target_humidity')) {
           const hum = this._cfg(`${value}Humidity`, null);
-          if (typeof hum === 'number') await this._setCapabilitySafe('target_humidity', hum / 100);
+          if (typeof hum === 'number') {
+            await this._setCapabilitySafe('target_humidity', hum / 100);
+            // A profile's own value is a specific deliberate choice, not
+            // "ride whatever the ceiling is" — clear the flag so a later
+            // temperature change doesn't override it back up to the max.
+            await this._updateHumidityRidesMaxFlag(hum / 100);
+          }
         }
       });
     }
@@ -1464,6 +1483,28 @@ class HuumDevice extends Homey.Device {
   }
 
   /**
+   * Whether the owner's last deliberate target_humidity choice was "as much
+   * steam as the current limit allows" (tracked explicitly by the capability
+   * listener, see _registerCapabilityListeners) rather than a specific
+   * below-max value. Drives _applyHumidityLimit's follow-the-ceiling logic
+   * without relying on comparing floats for equality — a value assembled by
+   * the real Homey slider isn't guaranteed to be bit-identical to the same
+   * percentage computed here via n / 100.
+   */
+  _humidityRidesMax(currentHumidity, maxFraction) {
+    return Math.abs(currentHumidity - maxFraction) < 1e-6;
+  }
+
+  /** Called whenever the owner sets target_humidity themselves, to record intent. */
+  async _updateHumidityRidesMaxFlag(value) {
+    if (typeof value !== 'number') return;
+    const options = (this.getCapabilityOptions && this.getCapabilityOptions('target_humidity')) || {};
+    const max = typeof options.max === 'number' ? options.max : null;
+    const rides = max != null && this._humidityRidesMax(value, max);
+    await this.setStoreValue('humidityRidesMax', rides).catch(this.error);
+  }
+
+  /**
    * Keeps target_humidity's own slider max honest: a static 0-90% range let
    * the owner drag it to 90% while set to 60°C, where the steamer's real
    * ceiling is 40% — the slider itself gave no hint, only _start() would
@@ -1479,28 +1520,30 @@ class HuumDevice extends Homey.Device {
     const limitingTemp = current != null ? Math.max(target, current) : target;
     const maxFraction = Math.round(getMaxHumidityForTemperature(limitingTemp)) / 100;
 
-    // Same reinit-loop guard as _applyDeviceLimits — only push a real change.
-    const previousMax = this.getStoreValue('appliedHumidityMax');
-    if (previousMax === maxFraction) return;
-
-    const currentOptions = (this.getCapabilityOptions && this.getCapabilityOptions('target_humidity')) || {};
-    try {
-      await this.setCapabilityOptions('target_humidity', { ...currentOptions, max: maxFraction });
-      await this.setStoreValue('appliedHumidityMax', maxFraction).catch(this.error);
-    } catch (err) {
-      this.error('Could not apply humidity limit:', err.message);
-      return;
+    // Same reinit-loop guard as _applyDeviceLimits — only push setCapabilityOptions
+    // (which re-initialises the device) when the max actually changed.
+    if (this.getStoreValue('appliedHumidityMax') !== maxFraction) {
+      const currentOptions = (this.getCapabilityOptions && this.getCapabilityOptions('target_humidity')) || {};
+      try {
+        await this.setCapabilityOptions('target_humidity', { ...currentOptions, max: maxFraction });
+        await this.setStoreValue('appliedHumidityMax', maxFraction).catch(this.error);
+      } catch (err) {
+        this.error('Could not apply humidity limit:', err.message);
+        return;
+      }
     }
 
-    // If the current value is above the new max, clamp it down. But if it
-    // was exactly riding the *old* max (the owner wants "as much steam as
-    // possible"), follow the ceiling back up too — otherwise a value once
-    // clamped down by a hot excursion (e.g. a brief overshoot) stays stuck
+    // If the current value is above the new max, clamp it down. But if the
+    // owner's last deliberate choice was "ride the ceiling" (the explicit
+    // humidityRidesMax flag, not a fragile value===oldMax comparison),
+    // follow the ceiling back up too — otherwise a value once clamped down
+    // by a hot excursion (e.g. a brief overshoot above 90°C) stays stuck
     // there even after the temperature drops back and more steam is
     // possible again.
     const currentHumidity = this.getCapabilityValue('target_humidity');
-    const wasAtOldMax = typeof previousMax === 'number' && currentHumidity === previousMax;
-    if (typeof currentHumidity === 'number' && (currentHumidity > maxFraction || wasAtOldMax)) {
+    if (typeof currentHumidity !== 'number') return;
+    const ridesMax = !!this.getStoreValue('humidityRidesMax');
+    if (currentHumidity > maxFraction || (ridesMax && !this._humidityRidesMax(currentHumidity, maxFraction))) {
       await this._setCapabilitySafe('target_humidity', maxFraction);
     }
   }

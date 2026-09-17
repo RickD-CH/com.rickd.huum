@@ -247,35 +247,55 @@ async function testHumidityLimitTracksTemperature() {
   // A static 0-90% slider range let the owner drag target_humidity to 90%
   // while set to 60°C, where the real steamer ceiling is 40% — the slider
   // itself gave no hint until _start() rejected/clamped it. Must track
-  // target OR current temperature, whichever is higher.
-  const device = makeDevice({ capabilities: { target_temperature: 60, target_humidity: 0.9 } });
+  // target OR current temperature, whichever is higher. Goes through the
+  // real capability listener (not a direct store/capability poke), because
+  // that's exactly the wiring that broke in production: the "was this
+  // riding the ceiling" intent has to be recorded when the owner actually
+  // sets the value, not inferred later from comparing floats.
+  const device = makeDevice({
+    capabilities: {
+      thermostat_mode: 'off', target_temperature: 60, target_humidity: 0, huum_start_profile: 'manual',
+    },
+  });
+  device._registerCapabilityListeners();
+
   await device._applyHumidityLimit(60);
   assert.strictEqual(device.getCapabilityOptions('target_humidity').max, 0.4, 'max drops to 40% at 60°C');
-  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'the now-too-high value is clamped down too');
 
-  // Lowering the temperature raises the ceiling back up. The value was
-  // riding the old ceiling (not a deliberate lower choice), so it follows
-  // the new, higher one back up too — reported live: it used to get stuck
-  // at whatever a hotter temperature had clamped it down to.
+  // Owner deliberately rides the ceiling (drags all the way to the max).
+  await device.triggerCapabilityListener('target_humidity', 0.4);
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4);
+
+  // Lowering the temperature raises the ceiling back up — riding-the-max
+  // follows it up too, instead of staying stuck at the old, lower value.
   await device._applyHumidityLimit(45);
   assert.strictEqual(device.getCapabilityOptions('target_humidity').max, 0.9);
-  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.9, 'riding the old ceiling -> follows the new one up too');
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.9, 'riding the ceiling -> follows it up too');
 
-  // A deliberate value below the ceiling is left alone.
-  await device._setCapabilitySafe('target_humidity', 0.2);
+  // A deliberate value below the ceiling is left alone across temperature changes.
+  await device.triggerCapabilityListener('target_humidity', 0.2);
   await device._applyHumidityLimit(60);
-  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.2, 'a value below both old and new ceilings is left untouched');
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.2, 'a value below both ceilings is left untouched');
 
   // Regression: a hot excursion (>90°C, where no steam is allowed at all)
   // must not leave humidity permanently stuck at 0 once the temperature
   // comes back down and more steam is possible again.
-  await device._applyHumidityLimit(45); // ceiling back to 90%, 0.2 is still below it -> untouched
+  await device._applyHumidityLimit(45); // ceiling back to 90%; 0.2 is still below it -> untouched
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.2);
-  await device._setCapabilitySafe('target_humidity', 0.9); // now riding the ceiling
+  await device.triggerCapabilityListener('target_humidity', 0.9); // rides the ceiling again
   await device._applyHumidityLimit(95); // brief hot excursion -> 0% allowed
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0, 'clamped to 0 at >90°C, no steam allowed');
   await device._applyHumidityLimit(61); // back down -> 35% allowed
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.35, 'recovers to the new ceiling instead of staying stuck at 0');
+
+  // A profile's own specific value is a deliberate choice, not "ride the
+  // ceiling" — a later temperature change must not override it back up.
+  device.__store.profile1Temperature = 45;
+  device.__store.profile1Humidity = 20;
+  await device.triggerCapabilityListener('huum_start_profile', 'profile1');
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.2, 'the profile\'s own 20% is applied');
+  await device._applyHumidityLimit(45);
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.2, 'stays at the profile value, does not jump to the 90% ceiling');
 
   // Current (measured) temperature, if higher than target, is the real
   // limiting factor once heating has overshot the setpoint.
@@ -624,16 +644,26 @@ async function testSetConfigClampsProfileHumidityAboveMax() {
   let cfg = await device.setConfig({ profiles: [{ name: 'Feucht', temperature: 50, humidity: 80 }] });
   assert.strictEqual(device.getStoreValue('profile1Humidity'), 55, 'clamped to the max for 50°C, not rejected');
   assert.strictEqual(cfg.profiles[0].humidity, 55, 'the clamped value comes back in the response too');
+  assert.deepStrictEqual(
+    cfg.humidityClamped,
+    [{
+      index: 0, name: 'Feucht', temperature: 50, requested: 80, maxHumidity: 55,
+    }],
+    'the response reports what was clamped, for the settings page to explain it',
+  );
 
-  // A valid combo (55% is exactly the max at 50°C) is left untouched.
+  // A valid combo (55% is exactly the max at 50°C) is left untouched, and
+  // reports no clamping.
   cfg = await device.setConfig({ profiles: [{ name: 'Feucht', temperature: 50, humidity: 55 }] });
   assert.strictEqual(cfg.profiles[0].humidity, 55);
+  assert.strictEqual(cfg.humidityClamped, undefined);
 
   // Changing only the temperature of an already-saved profile must also
   // re-check its existing (unchanged) humidity: raising the temperature to
   // 60°C drops the allowed max to 40%, clamping the untouched 55% down.
   cfg = await device.setConfig({ profiles: [{ temperature: 60 }] });
   assert.strictEqual(cfg.profiles[0].humidity, 40);
+  assert.strictEqual(cfg.humidityClamped[0].maxHumidity, 40);
 
   console.log('OK: setConfig() clamps a profile\'s humidity down to the steamer\'s max for its temperature, instead of rejecting the save');
 }
