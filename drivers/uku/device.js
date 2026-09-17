@@ -1071,6 +1071,7 @@ class HuumDevice extends Homey.Device {
     await this._trackSessionStats(status);
     await this._applyDeviceLimits(status);
     await this._applyHumidityTileFix();
+    await this._applyQuickActionFix();
     await this._syncInfoSettings(status);
 
     return status;
@@ -1471,6 +1472,24 @@ class HuumDevice extends Homey.Device {
       await this.setStoreValue('humidityTileFixApplied', true).catch(this.error);
     } catch (err) {
       this.error('Could not apply humidity tile fix:', err.message);
+    }
+  }
+
+  /**
+   * One-off nudge for existing devices: thermostat_mode didn't inherit
+   * onoff's quick-action row in the mobile device list/widget — it needs
+   * uiQuickAction explicitly, same as onoff.light already has.
+   */
+  async _applyQuickActionFix() {
+    if (this.getStoreValue('quickActionFixApplied') || typeof this.setCapabilityOptions !== 'function') return;
+    try {
+      if (this.hasCapability('thermostat_mode')) {
+        const current = (this.getCapabilityOptions && this.getCapabilityOptions('thermostat_mode')) || {};
+        await this.setCapabilityOptions('thermostat_mode', { ...current, uiQuickAction: true });
+      }
+      await this.setStoreValue('quickActionFixApplied', true).catch(this.error);
+    } catch (err) {
+      this.error('Could not apply quick-action fix:', err.message);
     }
   }
 

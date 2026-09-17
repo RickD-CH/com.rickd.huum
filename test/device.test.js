@@ -228,6 +228,21 @@ async function testHumidityTileFixAppliesOnce() {
   console.log('OK: target_humidity/measure_humidity tile options are fixed once for existing devices');
 }
 
+async function testQuickActionFixAppliesOnce() {
+  // thermostat_mode replaced onoff, but didn't inherit onoff's quick-action
+  // row in the mobile device list/widget (unlike onoff.light, which already
+  // declares uiQuickAction) — pushed once via setCapabilityOptions.
+  const device = makeDevice({ capabilities: { thermostat_mode: 'off' } });
+  await device._applyQuickActionFix();
+  assert.strictEqual(device.getCapabilityOptions('thermostat_mode').uiQuickAction, true);
+  assert.strictEqual(device.getStoreValue('quickActionFixApplied'), true);
+
+  device.__capabilityOptions = {};
+  await device._applyQuickActionFix();
+  assert.strictEqual(device.getCapabilityOptions('thermostat_mode'), undefined, 'guarded: does not re-apply once the flag is set');
+  console.log('OK: thermostat_mode gets uiQuickAction fixed once for existing devices');
+}
+
 async function testAdaptivePollIntervalPicksActiveVsIdle() {
   const device = makeDevice({ capabilities: {} });
   // poll intervals live in the device store now (moved to the app settings page)
@@ -996,6 +1011,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testReconcileCapabilitiesAddsAndRemoves();
   await testThermostatMigrationInPlace();
   await testHumidityTileFixAppliesOnce();
+  await testQuickActionFixAppliesOnce();
   await testAdaptivePollIntervalPicksActiveVsIdle();
   await testSessionTrackingCountsACompleteSession();
   await testSessionTrackingIgnoresEndWithNoKnownStart();

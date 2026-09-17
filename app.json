@@ -654,6 +654,7 @@
           }
         },
         "thermostat_mode": {
+          "uiQuickAction": true,
           "values": [
             { "id": "heat", "title": { "en": "Heat", "de": "Heizen" } },
             { "id": "off", "title": { "en": "Off", "de": "Aus" } }
