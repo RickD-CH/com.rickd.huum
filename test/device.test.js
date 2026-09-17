@@ -129,6 +129,19 @@ async function testDoorOpenErrorStillRejectsWithTranslatedMessage() {
   console.log('OK: door-open safety error still rejects the listener with the translated message');
 }
 
+async function testStartPassesCurrentTemperatureToHumidityCheck() {
+  // The real humidity ceiling is driven by target OR current cabin
+  // temperature, whichever is higher (see lib/HuumApi.js) — _start() must
+  // forward the last known measured temperature, not just the target.
+  const device = makeDevice({ capabilities: {} });
+  device._lastStatus = { temperature: 46 };
+  let captured = null;
+  device.api = { turnOn: async (args) => { captured = args; return {}; } };
+  await device._start(45, 60);
+  assert.strictEqual(captured.currentTemperature, 46);
+  console.log('OK: _start() forwards the current measured temperature to the humidity-limit check, not just the target');
+}
+
 async function testHumidityExceedsMaxIsTranslated() {
   const device = makeDevice({ capabilities: {} });
   const err = new Error('raw');
@@ -977,6 +990,7 @@ async function testStartProfilePickerFillsTheSliders() {
 (async () => {
   await testPostActionRefreshFailureDoesNotRejectListener();
   await testDoorOpenErrorStillRejectsWithTranslatedMessage();
+  await testStartPassesCurrentTemperatureToHumidityCheck();
   await testHumidityExceedsMaxIsTranslated();
   await testAuthErrorMarksUnavailable();
   await testReconcileCapabilitiesAddsAndRemoves();

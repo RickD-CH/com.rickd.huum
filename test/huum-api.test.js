@@ -36,6 +36,26 @@ console.log('getMaxHumidity thresholds OK');
   );
   console.log('humidity threshold validation OK (incl. structured code/data for i18n)');
 
+  // humidity max is driven by target OR current temperature, whichever is
+  // higher — confirmed live: a sauna set to 45°C (90% allowed) that had
+  // already overshot to 46° actual was still capped at 55% (the 46-50°
+  // bracket), in both this app and the official one.
+  await assert.rejects(
+    () => api.turnOn({
+      temperature: 45, currentTemperature: 46, humidity: 60, safetyOverride: true,
+    }),
+    (err) => err.code === 'humidity_exceeds_max' && err.data.maxHumidity === 55 && err.data.temperature === 46,
+  );
+  // A cold cabin below target must not *loosen* the limit past the target's
+  // own — the target is what the steamer will actually be asked to hold.
+  await assert.rejects(
+    () => api.turnOn({
+      temperature: 90, currentTemperature: 20, humidity: 50, safetyOverride: true,
+    }),
+    (err) => err.code === 'humidity_exceeds_max' && err.data.maxHumidity === 10 && err.data.temperature === 90,
+  );
+  console.log('humidity max uses whichever of target/current temperature is higher');
+
   // Door safety: stub getStatus to report open door, ensure turnOn without
   // safetyOverride refuses and never reaches _request.
   let requestCalled = false;

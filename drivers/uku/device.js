@@ -902,6 +902,7 @@ class HuumDevice extends Homey.Device {
     }
     try {
       const args = { temperature, humidity: humidityPercent };
+      if (last && typeof last.temperature === 'number') args.currentTemperature = last.temperature;
       if (!this._sensorPresent('door', this._lastStatus)) {
         // No door contact wired up → the API would otherwise report the
         // door as permanently open and block every start.
