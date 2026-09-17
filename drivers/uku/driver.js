@@ -52,6 +52,7 @@ class HuumDriver extends Homey.Driver {
 
       const capabilities = [
         'thermostat_mode',
+        'huum_power',
         'target_temperature',
         'measure_temperature',
         'huum_start_profile',

@@ -219,7 +219,7 @@ async function testHumidityTileFixAppliesOnce() {
   await device._applyHumidityTileFix();
   assert.strictEqual(device.getCapabilityOptions('target_humidity').uiComponent, 'slider');
   assert.deepStrictEqual(device.getCapabilityOptions('measure_humidity').title, { en: 'Humidity', de: 'Feuchtigkeit' });
-  assert.strictEqual(device.getStoreValue('humidityTileFixApplied'), true);
+  assert.strictEqual(device.getStoreValue('humidityTileFixApplied2'), true);
 
   // Second call is a no-op (guarded by the store flag) — must not re-push.
   device.__capabilityOptions = {};
@@ -631,6 +631,26 @@ async function testWaterAlarmIgnoresZeroSteamerError() {
   console.log('OK: water alarm only fires on a positive steamerError code, not 0');
 }
 
+async function testHuumPowerMirrorsThermostatMode() {
+  // huum_power exists purely for Homey's mobile Quick Action list, which
+  // only offers boolean toggle/button capabilities, not thermostat_mode's
+  // heat/off dropdown. Must stay in sync whenever thermostat_mode changes,
+  // and toggling it must drive the sauna exactly like thermostat_mode does.
+  const device = makeDevice({
+    capabilities: { thermostat_mode: 'off', huum_power: false, target_temperature: 80 },
+  });
+  device.api = { turnOn: async () => ({}), getStatus: async () => { throw new Error('no refresh in test'); } };
+  device._registerCapabilityListeners();
+
+  await device.triggerCapabilityListener('huum_power', true);
+  assert.strictEqual(device.getCapabilityValue('thermostat_mode'), 'heat', 'toggling huum_power drives thermostat_mode too');
+
+  await device._setThermostatMode('off');
+  assert.strictEqual(device.getCapabilityValue('huum_power'), false, '_setThermostatMode keeps huum_power in sync');
+
+  console.log('OK: huum_power mirrors thermostat_mode both ways (Quick Action toggle <-> real state)');
+}
+
 async function testWaterCheckReminderFiresOnStart() {
   const device = makeDevice({
     capabilities: { thermostat_mode: 'off', target_temperature: 80, target_humidity: 0.3 },
@@ -1034,6 +1054,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testSessionEnergyAndCost();
   await testSessionEnergyFromMeterDelta();
   await testWaterAlarmIgnoresZeroSteamerError();
+  await testHuumPowerMirrorsThermostatMode();
   await testWaterCheckReminderFiresOnStart();
   await testTargetsNotOverwrittenWhileOff();
   await testStartProfilePickerFillsTheSliders();

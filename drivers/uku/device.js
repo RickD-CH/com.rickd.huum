@@ -539,7 +539,7 @@ class HuumDevice extends Homey.Device {
         await this._start(temp, hum);
         await this._maybeWaterCheckReminder();
       }
-      await this._setCapabilitySafe('thermostat_mode', 'heat');
+      await this._setThermostatMode('heat');
 
       if (b.autoStopMinutes) {
         await this.setStoreValue('autoStopAt', Date.now() + b.autoStopMinutes * 60 * 1000).catch(this.error);
@@ -716,6 +716,9 @@ class HuumDevice extends Homey.Device {
 
   _registerCapabilityListeners() {
     this.registerCapabilityListener('thermostat_mode', (value) => this._setPower(value === 'heat'));
+    // Plain boolean mirror, purely for the mobile Quick Action toggle (see
+    // _setThermostatMode) — routes through the same _setPower().
+    this.registerCapabilityListener('huum_power', (value) => this._setPower(!!value));
 
     this.registerCapabilityListener('target_temperature', async (value) => {
       // The HUUM API has no separate "set temperature while off" endpoint;
@@ -811,6 +814,12 @@ class HuumDevice extends Homey.Device {
     return this.getCapabilityValue('thermostat_mode') === 'heat';
   }
 
+  /** Sets thermostat_mode and its boolean Quick Action mirror (huum_power) together. */
+  async _setThermostatMode(mode) {
+    await this._setCapabilitySafe('thermostat_mode', mode);
+    await this._setCapabilitySafe('huum_power', mode === 'heat');
+  }
+
   /** Turn the sauna on/off (the thermostat_mode capability listener). */
   async _setPower(on) {
     const wasOn = this._isHeating();
@@ -819,7 +828,7 @@ class HuumDevice extends Homey.Device {
       if (profile) {
         // startWithProfile() runs the water-check reminder + status refresh.
         await this.startWithProfile(profile);
-        await this._setCapabilitySafe('thermostat_mode', 'heat');
+        await this._setThermostatMode('heat');
         return;
       }
       const temperature = this.getCapabilityValue('target_temperature') || 80;
@@ -830,7 +839,7 @@ class HuumDevice extends Homey.Device {
     }
     // The command above already succeeded; a follow-up status-refresh hiccup
     // must not make the action look like it failed.
-    await this._setCapabilitySafe('thermostat_mode', on ? 'heat' : 'off');
+    await this._setThermostatMode(on ? 'heat' : 'off');
     await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
   }
 
@@ -1017,6 +1026,11 @@ class HuumDevice extends Homey.Device {
       // target > measured, which ignored onoff entirely and showed "heating
       // toward X°" even while the sauna was fully off.
       ['thermostat_mode', true],
+      // Plain boolean mirror of thermostat_mode: Homey's mobile "Quick
+      // Action" picker only lists boolean toggle/button capabilities, not
+      // thermostat_mode's heat/off dropdown, so there's no way to get a
+      // one-tap start/stop otherwise.
+      ['huum_power', true],
       ['onoff', false],
     ]);
 
@@ -1035,7 +1049,7 @@ class HuumDevice extends Homey.Device {
   }
 
   async _applyStatus(status) {
-    await this._setCapabilitySafe('thermostat_mode', status.isHeating ? 'heat' : 'off');
+    await this._setThermostatMode(status.isHeating ? 'heat' : 'off');
     // A pending auto-off only makes sense while this same session runs — the
     // moment the sauna is off (manually, at the panel, or the UKU's own
     // limit) forget it so it can't clobber a later session.
@@ -1456,11 +1470,11 @@ class HuumDevice extends Homey.Device {
    * steamer duty cycle here rather than an independent sensor reading.
    */
   async _applyHumidityTileFix() {
-    if (this.getStoreValue('humidityTileFixApplied') || typeof this.setCapabilityOptions !== 'function') return;
+    if (this.getStoreValue('humidityTileFixApplied2') || typeof this.setCapabilityOptions !== 'function') return;
     try {
       if (this.hasCapability('target_humidity')) {
         const current = (this.getCapabilityOptions && this.getCapabilityOptions('target_humidity')) || {};
-        await this.setCapabilityOptions('target_humidity', { ...current, uiComponent: 'slider' });
+        await this.setCapabilityOptions('target_humidity', { ...current, uiComponent: 'slider', decimals: 0 });
       }
       if (this.hasCapability('measure_humidity')) {
         const current = (this.getCapabilityOptions && this.getCapabilityOptions('measure_humidity')) || {};
@@ -1469,7 +1483,7 @@ class HuumDevice extends Homey.Device {
           title: { en: 'Humidity', de: 'Feuchtigkeit' },
         });
       }
-      await this.setStoreValue('humidityTileFixApplied', true).catch(this.error);
+      await this.setStoreValue('humidityTileFixApplied2', true).catch(this.error);
     } catch (err) {
       this.error('Could not apply humidity tile fix:', err.message);
     }
@@ -1606,7 +1620,7 @@ class HuumDevice extends Homey.Device {
     if (this.hasCapability('huum_start_profile')) {
       await this.setCapabilityValue('huum_start_profile', profileId).catch(this.error);
     }
-    await this._setCapabilitySafe('thermostat_mode', 'heat');
+    await this._setThermostatMode('heat');
     return this.getWidgetState();
   }
 

@@ -112,6 +112,21 @@
       "uiComponent": "button",
       "uiQuickAction": false
     },
+    "huum_power": {
+      "type": "boolean",
+      "title": {
+        "en": "Power",
+        "de": "Heizen"
+      },
+      "desc": {
+        "en": "Plain on/off mirror of thermostat_mode, for the mobile Quick Action toggle — Homey's Quick Action list only offers boolean capabilities, not thermostat_mode's heat/off dropdown.",
+        "de": "Einfacher An/Aus-Spiegel von thermostat_mode, für die Schnellaktion im Handy — die Schnellaktions-Liste bietet nur boolesche Capabilities, nicht das Heizen/Aus-Dropdown von thermostat_mode."
+      },
+      "getable": true,
+      "setable": true,
+      "uiComponent": "toggle",
+      "uiQuickAction": true
+    },
     "huum_remote_blocked": {
       "type": "boolean",
       "icon": "/assets/huum_remote_blocked.svg",
@@ -620,6 +635,7 @@
       "class": "thermostat",
       "capabilities": [
         "thermostat_mode",
+        "huum_power",
         "target_temperature",
         "measure_temperature",
         "target_humidity",
@@ -670,6 +686,7 @@
           "min": 0,
           "max": 0.9,
           "step": 0.05,
+          "decimals": 0,
           "uiComponent": "slider",
           "title": {
             "en": "Target humidity",
