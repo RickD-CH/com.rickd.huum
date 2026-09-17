@@ -30,4 +30,10 @@ module.exports = {
     return device(homey, query).widgetStartProfile(body && body.profile);
   },
 
+  /** POST /log {message} — surface a widget-side failure via the app's own logging. */
+  async logError({ homey, body }) {
+    homey.app.error('[widget]', (body && body.message) || 'unknown error');
+    return {};
+  },
+
 };

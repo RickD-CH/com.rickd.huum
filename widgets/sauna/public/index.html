@@ -106,6 +106,13 @@
       try { HomeyRef.setHeight(document.body.scrollHeight); } catch (e) {}
     }
 
+    // Mirrors this app's this.error(...) logging (device.js, app.js) — the widget
+    // has no Homey instance to log through, so it reports over the widget API instead.
+    function logErr(err) {
+      var message = String((err && (err.message || err.error)) || err);
+      api('POST', '/log', { message: message }).catch(function () {});
+    }
+
     function showMsg(text, isErr) {
       document.getElementById('root').innerHTML =
         '<div class="msg' + (isErr ? ' err' : '') + '">' + esc(text) + '</div>';
@@ -183,7 +190,7 @@
       promise.then(function (s) {
         busy = false; lastJson = JSON.stringify(s); render(s);
       }).catch(function (err) {
-        busy = false; console.error(err);
+        busy = false; logErr(err);
         showMsg(T.failed, true);
         setTimeout(refresh, 1500);
       });
@@ -195,7 +202,7 @@
         if (j === lastJson) return;
         lastJson = j; render(s);
       }).catch(function (err) {
-        console.error(err);
+        logErr(err);
         var m = String((err && (err.message || err.error)) || err);
         if (/no_sauna/.test(m) || (err && err.statusCode === 404)) { lastJson = null; showMsg(T.noSauna); }
         else if (lastJson == null) showMsg(T.failed, true);
