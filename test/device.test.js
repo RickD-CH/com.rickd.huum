@@ -243,6 +243,30 @@ async function testQuickActionFixAppliesOnce() {
   console.log('OK: thermostat_mode gets uiQuickAction fixed once for existing devices');
 }
 
+async function testHumidityLimitTracksTemperature() {
+  // A static 0-90% slider range let the owner drag target_humidity to 90%
+  // while set to 60°C, where the real steamer ceiling is 40% — the slider
+  // itself gave no hint until _start() rejected/clamped it. Must track
+  // target OR current temperature, whichever is higher.
+  const device = makeDevice({ capabilities: { target_temperature: 60, target_humidity: 0.9 } });
+  await device._applyHumidityLimit(60);
+  assert.strictEqual(device.getCapabilityOptions('target_humidity').max, 0.4, 'max drops to 40% at 60°C');
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'the now-too-high value is clamped down too');
+
+  // Lowering the temperature raises the ceiling back up (does not also
+  // raise the already-clamped value back up).
+  await device._applyHumidityLimit(45);
+  assert.strictEqual(device.getCapabilityOptions('target_humidity').max, 0.9);
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4);
+
+  // Current (measured) temperature, if higher than target, is the real
+  // limiting factor once heating has overshot the setpoint.
+  await device._applyHumidityLimit(45, { temperature: 50 });
+  assert.strictEqual(device.getCapabilityOptions('target_humidity').max, 0.55, 'current temp of 50°C wins over the lower 45° target');
+
+  console.log('OK: target_humidity\'s own slider max tracks target/current temperature, clamping a now-too-high value too');
+}
+
 async function testAdaptivePollIntervalPicksActiveVsIdle() {
   const device = makeDevice({ capabilities: {} });
   // poll intervals live in the device store now (moved to the app settings page)
@@ -1032,6 +1056,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testThermostatMigrationInPlace();
   await testHumidityTileFixAppliesOnce();
   await testQuickActionFixAppliesOnce();
+  await testHumidityLimitTracksTemperature();
   await testAdaptivePollIntervalPicksActiveVsIdle();
   await testSessionTrackingCountsACompleteSession();
   await testSessionTrackingIgnoresEndWithNoKnownStart();

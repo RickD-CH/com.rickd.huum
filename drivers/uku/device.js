@@ -721,6 +721,10 @@ class HuumDevice extends Homey.Device {
     this.registerCapabilityListener('huum_power', (value) => this._setPower(!!value));
 
     this.registerCapabilityListener('target_temperature', async (value) => {
+      // Keep the humidity slider's own max honest for the *new* temperature
+      // right away — otherwise it still shows a ceiling from the old value
+      // until the next poll.
+      await this._applyHumidityLimit(value);
       // The HUUM API has no separate "set temperature while off" endpoint;
       // it only accepts a temperature as part of /start. If the heater is
       // off we just keep the value locally for the next start.
@@ -1084,6 +1088,7 @@ class HuumDevice extends Homey.Device {
     await this._syncTimeRemaining(status);
     await this._trackSessionStats(status);
     await this._applyDeviceLimits(status);
+    await this._applyHumidityLimit(this.getCapabilityValue('target_temperature'), status);
     await this._applyHumidityTileFix();
     await this._applyQuickActionFix();
     await this._syncInfoSettings(status);
@@ -1455,6 +1460,40 @@ class HuumDevice extends Homey.Device {
       await this.setStoreValue('appliedTempLimits', key).catch(this.error);
     } catch (err) {
       this.error('Could not apply device-reported temperature limits:', err.message);
+    }
+  }
+
+  /**
+   * Keeps target_humidity's own slider max honest: a static 0-90% range let
+   * the owner drag it to 90% while set to 60°C, where the steamer's real
+   * ceiling is 40% — the slider itself gave no hint, only _start() would
+   * have rejected/clamped it. Recomputed from target OR current
+   * temperature, whichever is higher (see lib/HuumApi.js), on every status
+   * sync and right when target_temperature changes.
+   */
+  async _applyHumidityLimit(targetTemp, status) {
+    if (!this.hasCapability('target_humidity') || typeof this.setCapabilityOptions !== 'function') return;
+    const target = typeof targetTemp === 'number' ? targetTemp : this.getCapabilityValue('target_temperature');
+    if (typeof target !== 'number') return;
+    const current = status && typeof status.temperature === 'number' ? status.temperature : null;
+    const limitingTemp = current != null ? Math.max(target, current) : target;
+    const maxFraction = Math.round(getMaxHumidityForTemperature(limitingTemp)) / 100;
+
+    // Same reinit-loop guard as _applyDeviceLimits — only push a real change.
+    if (this.getStoreValue('appliedHumidityMax') === maxFraction) return;
+
+    const currentOptions = (this.getCapabilityOptions && this.getCapabilityOptions('target_humidity')) || {};
+    try {
+      await this.setCapabilityOptions('target_humidity', { ...currentOptions, max: maxFraction });
+      await this.setStoreValue('appliedHumidityMax', maxFraction).catch(this.error);
+    } catch (err) {
+      this.error('Could not apply humidity limit:', err.message);
+      return;
+    }
+
+    const currentHumidity = this.getCapabilityValue('target_humidity');
+    if (typeof currentHumidity === 'number' && currentHumidity > maxFraction) {
+      await this._setCapabilitySafe('target_humidity', maxFraction);
     }
   }
 
