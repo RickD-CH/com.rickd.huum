@@ -54,5 +54,9 @@
   "0.8.3": {
     "en": "Removed the in-app donation button (donation info stays in the store listing), shortened the store description, and redrew the widget preview images without any text.",
     "de": "Spenden-Button in der App entfernt (Spendeninfo bleibt im Store-Eintrag), Store-Beschreibung gekuerzt, und die Widget-Vorschaubilder ohne Text neu gezeichnet."
+  },
+  "0.8.4": {
+    "en": "The device tile shows the current temperature next to the target again (now a proper on/off-aware thermostat), and a profile's humidity is checked against the steamer's real limit when you save it.",
+    "de": "Die Geraete-Kachel zeigt die Ist-Temperatur wieder neben der Zieltemperatur (jetzt ein echtes, an/aus-bewusstes Thermostat), und die Feuchte eines Profils wird beim Speichern gegen das reale Verdampfer-Limit geprueft."
   }
 }

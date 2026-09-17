@@ -14,7 +14,12 @@ class Device {
     this.__available = true;
     this.__unavailableReason = null;
     this.__name = 'Test Sauna';
+    this.__class = 'heater'; // pre-migration default, like a real already-paired device
   }
+
+  getClass() { return this.__class; }
+
+  async setClass(deviceClass) { this.__class = deviceClass; }
 
   getStore() { return this.__store; }
 
@@ -58,7 +63,11 @@ class Device {
 
   getAvailable() { return this.__available; }
 
-  async setCapabilityOptions() {}
+  async setCapabilityOptions(id, options) {
+    (this.__capabilityOptions ||= {})[id] = options;
+  }
+
+  getCapabilityOptions(id) { return (this.__capabilityOptions || {})[id]; }
 
   async setEnergy() {}
 

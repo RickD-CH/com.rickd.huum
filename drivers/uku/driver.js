@@ -51,9 +51,9 @@ class HuumDriver extends Homey.Driver {
       const hasLight = configHasFlag(status.config, CONFIG_FLAGS.LIGHT);
 
       const capabilities = [
-        'onoff',
+        'thermostat_mode',
         'target_temperature',
-        'measure_temperature.room',
+        'measure_temperature',
         'huum_start_profile',
         'huum_refresh',
         'huum_time_remaining',
