@@ -14,8 +14,12 @@ async function run() {
     widgetSetPower: async (on) => { calls.push(['power', on]); return { heating: on }; },
     widgetStartProfile: async (p) => { calls.push(['profile', p]); return { heating: true, startProfile: p }; },
   };
+  const errors = [];
   const homey = {
-    app: { getWidgetDevice: (id) => (id == null || id === 'a' ? sauna : null) },
+    app: {
+      getWidgetDevice: (id) => (id == null || id === 'a' ? sauna : null),
+      error: (...args) => errors.push(args),
+    },
   };
 
   assert.deepStrictEqual(await api.getState({ homey, query: {} }), { heating: false, targetTemperature: 80 });
@@ -34,7 +38,10 @@ async function run() {
     'no sauna paired -> 404-ish error',
   );
 
-  console.log('OK: widget api.js state / power / profile handlers');
+  await api.logError({ homey, body: { message: 'boom' } });
+  assert.deepStrictEqual(errors.pop(), ['[widget]', 'boom']);
+
+  console.log('OK: widget api.js state / power / profile / log handlers');
   console.log('\nAll widget.js tests passed.');
 }
 
