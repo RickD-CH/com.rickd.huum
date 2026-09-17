@@ -1533,18 +1533,26 @@ class HuumDevice extends Homey.Device {
       }
     }
 
-    // If the current value is above the new max, clamp it down. But if the
-    // owner's last deliberate choice was "ride the ceiling" (the explicit
-    // humidityRidesMax flag, not a fragile value===oldMax comparison),
-    // follow the ceiling back up too — otherwise a value once clamped down
-    // by a hot excursion (e.g. a brief overshoot above 90°C) stays stuck
-    // there even after the temperature drops back and more steam is
-    // possible again.
+    // If the current value is above the new max, clamp it down. Also follow
+    // the ceiling back UP if the owner's last deliberate choice was "ride
+    // the ceiling" (the explicit humidityRidesMax flag, not a fragile
+    // value===oldMax comparison) — otherwise a value once clamped down by a
+    // hot excursion (e.g. a brief overshoot above 90°C) stays stuck there
+    // even after the temperature drops back and more steam is possible
+    // again.
     const currentHumidity = this.getCapabilityValue('target_humidity');
     if (typeof currentHumidity !== 'number') return;
     const ridesMax = !!this.getStoreValue('humidityRidesMax');
-    if (currentHumidity > maxFraction || (ridesMax && !this._humidityRidesMax(currentHumidity, maxFraction))) {
+    const needsClampDown = currentHumidity > maxFraction;
+    const needsFollowUp = ridesMax && !this._humidityRidesMax(currentHumidity, maxFraction);
+    if (needsClampDown || needsFollowUp) {
       await this._setCapabilitySafe('target_humidity', maxFraction);
+      // The value now sits exactly at the ceiling, whether it got there by
+      // an explicit owner choice or this very clamp — keep following the
+      // max from here on, without requiring the owner to first re-drag the
+      // slider to re-establish that intent (that's the bug being fixed:
+      // an *automatic* clamp-down never used to record this).
+      await this.setStoreValue('humidityRidesMax', true).catch(this.error);
     }
   }
 

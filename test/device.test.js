@@ -305,6 +305,26 @@ async function testHumidityLimitTracksTemperature() {
   console.log('OK: target_humidity\'s own slider max tracks target/current temperature, following the ceiling instead of getting stuck');
 }
 
+async function testHumidityAutoClampAlsoRecovers() {
+  // The exact bug reported live, twice: on a real (freshly-updated) device,
+  // humidityRidesMax has never been set by an explicit owner action yet.
+  // The first clamp a device ever sees is often an *automatic* one (a hot
+  // excursion), not a deliberate "drag to max" — that clamp must count as
+  // "now riding the ceiling" too, or the value never recovers afterward.
+  const device = makeDevice({
+    capabilities: { thermostat_mode: 'off', target_temperature: 60, target_humidity: 0.3 },
+  });
+  assert.strictEqual(device.getStoreValue('humidityRidesMax'), null, 'never explicitly set on a fresh device');
+
+  await device._applyHumidityLimit(95); // hot excursion the owner triggered directly, not via the listener
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0, 'clamped to 0% at >90°C');
+
+  await device._applyHumidityLimit(61); // back down -> 35% allowed
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.35, 'an automatic clamp also counts as "riding the ceiling" and recovers');
+
+  console.log('OK: an automatic (not owner-initiated) clamp also recovers once the ceiling rises again');
+}
+
 async function testAdaptivePollIntervalPicksActiveVsIdle() {
   const device = makeDevice({ capabilities: {} });
   // poll intervals live in the device store now (moved to the app settings page)
@@ -1105,6 +1125,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testHumidityTileFixAppliesOnce();
   await testQuickActionFixAppliesOnce();
   await testHumidityLimitTracksTemperature();
+  await testHumidityAutoClampAlsoRecovers();
   await testAdaptivePollIntervalPicksActiveVsIdle();
   await testSessionTrackingCountsACompleteSession();
   await testSessionTrackingIgnoresEndWithNoKnownStart();
