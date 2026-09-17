@@ -1480,7 +1480,8 @@ class HuumDevice extends Homey.Device {
     const maxFraction = Math.round(getMaxHumidityForTemperature(limitingTemp)) / 100;
 
     // Same reinit-loop guard as _applyDeviceLimits — only push a real change.
-    if (this.getStoreValue('appliedHumidityMax') === maxFraction) return;
+    const previousMax = this.getStoreValue('appliedHumidityMax');
+    if (previousMax === maxFraction) return;
 
     const currentOptions = (this.getCapabilityOptions && this.getCapabilityOptions('target_humidity')) || {};
     try {
@@ -1491,8 +1492,15 @@ class HuumDevice extends Homey.Device {
       return;
     }
 
+    // If the current value is above the new max, clamp it down. But if it
+    // was exactly riding the *old* max (the owner wants "as much steam as
+    // possible"), follow the ceiling back up too — otherwise a value once
+    // clamped down by a hot excursion (e.g. a brief overshoot) stays stuck
+    // there even after the temperature drops back and more steam is
+    // possible again.
     const currentHumidity = this.getCapabilityValue('target_humidity');
-    if (typeof currentHumidity === 'number' && currentHumidity > maxFraction) {
+    const wasAtOldMax = typeof previousMax === 'number' && currentHumidity === previousMax;
+    if (typeof currentHumidity === 'number' && (currentHumidity > maxFraction || wasAtOldMax)) {
       await this._setCapabilitySafe('target_humidity', maxFraction);
     }
   }

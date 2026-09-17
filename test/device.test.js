@@ -253,18 +253,36 @@ async function testHumidityLimitTracksTemperature() {
   assert.strictEqual(device.getCapabilityOptions('target_humidity').max, 0.4, 'max drops to 40% at 60°C');
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'the now-too-high value is clamped down too');
 
-  // Lowering the temperature raises the ceiling back up (does not also
-  // raise the already-clamped value back up).
+  // Lowering the temperature raises the ceiling back up. The value was
+  // riding the old ceiling (not a deliberate lower choice), so it follows
+  // the new, higher one back up too — reported live: it used to get stuck
+  // at whatever a hotter temperature had clamped it down to.
   await device._applyHumidityLimit(45);
   assert.strictEqual(device.getCapabilityOptions('target_humidity').max, 0.9);
-  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4);
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.9, 'riding the old ceiling -> follows the new one up too');
+
+  // A deliberate value below the ceiling is left alone.
+  await device._setCapabilitySafe('target_humidity', 0.2);
+  await device._applyHumidityLimit(60);
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.2, 'a value below both old and new ceilings is left untouched');
+
+  // Regression: a hot excursion (>90°C, where no steam is allowed at all)
+  // must not leave humidity permanently stuck at 0 once the temperature
+  // comes back down and more steam is possible again.
+  await device._applyHumidityLimit(45); // ceiling back to 90%, 0.2 is still below it -> untouched
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.2);
+  await device._setCapabilitySafe('target_humidity', 0.9); // now riding the ceiling
+  await device._applyHumidityLimit(95); // brief hot excursion -> 0% allowed
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0, 'clamped to 0 at >90°C, no steam allowed');
+  await device._applyHumidityLimit(61); // back down -> 35% allowed
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.35, 'recovers to the new ceiling instead of staying stuck at 0');
 
   // Current (measured) temperature, if higher than target, is the real
   // limiting factor once heating has overshot the setpoint.
   await device._applyHumidityLimit(45, { temperature: 50 });
   assert.strictEqual(device.getCapabilityOptions('target_humidity').max, 0.55, 'current temp of 50°C wins over the lower 45° target');
 
-  console.log('OK: target_humidity\'s own slider max tracks target/current temperature, clamping a now-too-high value too');
+  console.log('OK: target_humidity\'s own slider max tracks target/current temperature, following the ceiling instead of getting stuck');
 }
 
 async function testAdaptivePollIntervalPicksActiveVsIdle() {
