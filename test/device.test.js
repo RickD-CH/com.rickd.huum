@@ -246,67 +246,40 @@ async function testQuickActionFixAppliesOnce() {
 }
 
 async function testHumidityLimitTracksTemperature() {
-  // A static 0-90% slider range let the owner drag target_humidity to 90%
-  // while set to 60°C, where the real steamer ceiling is 40% — the slider
-  // itself gave no hint until _start() rejected/clamped it. Must track
-  // target OR current temperature, whichever is higher, and only ever
-  // clamp DOWN — never re-raise a value on its own. Tests the real logic
-  // directly (_applyHumidityLimitNow) — _applyHumidityLimit itself only
-  // schedules this via setTimeout, covered separately.
+  // FINAL: value-only, no dynamic capabilityOptions.max — see the doc
+  // comment on _applyHumidityLimit for the full history of why. Every
+  // variant that also touched capabilityOptions (before/after/merged/
+  // hardcoded, deferred or not) reproduced the same failure live: this
+  // function's own read-back (over multiple independent poll cycles)
+  // showed the correct clamped value, while the value externally reported
+  // by the Homey platform was 0 — a platform-level reliability gap outside
+  // this app's visibility. Only ever clamps DOWN, never raises a value
+  // back up on its own.
   const device = makeDevice({ capabilities: { target_temperature: 60, target_humidity: 0.9 } });
 
-  await device._applyHumidityLimitNow(60);
-  assert.strictEqual(device.getCapabilityOptions('target_humidity').max, 0.4, 'max drops to 40% at 60°C');
-  assert.strictEqual(device.getCapabilityOptions('target_humidity').step, 0.05, 'step must never be dropped from the options push');
+  await device._applyHumidityLimit(60);
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'clamped down to the real max for 60°C (40%)');
 
   // Lowering the temperature raises the max again, but the value — already
   // valid at 0.4 — is left exactly as is, never raised back up on its own.
-  await device._applyHumidityLimitNow(45);
-  assert.strictEqual(device.getCapabilityOptions('target_humidity').max, 0.9);
+  await device._applyHumidityLimit(45);
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'never raised on its own, even though the ceiling went up');
 
   // A value that's already valid for the new temperature must never be
   // touched — this is the exact bug reported live (a valid 55% reset to 0%).
   await device._setCapabilitySafe('target_humidity', 0.55);
-  await device._applyHumidityLimitNow(51); // max at 51°C is 45% -> 0.55 is now too high
+  await device._applyHumidityLimit(51); // max at 51°C is 45% -> 0.55 is now too high
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.45, 'clamped down to the real max, exactly once');
-  await device._applyHumidityLimitNow(50); // max at 50°C is 55% -- now valid again, must be left alone
+  await device._applyHumidityLimit(50); // max at 50°C is 55% -- now valid again, must be left alone
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.45, 'stays exactly where it was clamped to; never bumped back up');
 
   // Current (measured) temperature, if higher than target, is the real
   // limiting factor once heating has overshot the setpoint.
   await device._setCapabilitySafe('target_humidity', 0.9);
-  await device._applyHumidityLimitNow(45, { temperature: 50 });
-  assert.strictEqual(device.getCapabilityOptions('target_humidity').max, 0.55, 'current temp of 50°C wins over the lower 45° target');
+  await device._applyHumidityLimit(45, { temperature: 50 });
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.55, 'current temp of 50°C (max 55%) wins over the lower 45° target (max 90%)');
 
-  console.log('OK: target_humidity\'s own slider max tracks target/current temperature, only ever clamping the value down');
-}
-
-async function testHumidityLimitIsDeferredFromTemperatureListener() {
-  // Reported live: calling _applyHumidityLimit's logic synchronously from
-  // inside the target_temperature listener stopped clamping humidity (and
-  // updating its options) at all. Root cause (confirmed via the Homey
-  // community forum): the SDK silently reverts a *different* capability's
-  // value/options change made synchronously inside a listener, assuming a
-  // listener only ever touches its own capability. _applyHumidityLimit
-  // itself defers to _applyHumidityLimitNow via setTimeout(...,0) so every
-  // caller — this listener included — gets that for free.
-  const device = makeDevice({
-    capabilities: { thermostat_mode: 'off', target_temperature: 45, target_humidity: 0.8 },
-  });
-  device._registerCapabilityListeners();
-
-  await device.triggerCapabilityListener('target_temperature', 60);
-  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.8, 'not touched synchronously inside the listener');
-  assert.strictEqual(device.homey.__timers.length, 1, 'the humidity-limit check is scheduled via setTimeout, not awaited inline');
-
-  await device.homey.__timers[0].fn();
-  assert.strictEqual(device.getCapabilityOptions('target_humidity').max, 0.4, 'the slider max is also updated once deferred');
-  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'clamped to 60°C\'s real max once the deferred check runs');
-
-  console.log('OK: the temperature listener defers the humidity-limit check via setTimeout instead of applying it synchronously inside itself');
+  console.log('OK: target_humidity is clamped down (value only, no capabilityOptions changes) to the real max for target/current temperature');
 }
 
 async function testAdaptivePollIntervalPicksActiveVsIdle() {
@@ -1109,7 +1082,6 @@ async function testStartProfilePickerFillsTheSliders() {
   await testHumidityTileFixAppliesOnce();
   await testQuickActionFixAppliesOnce();
   await testHumidityLimitTracksTemperature();
-  await testHumidityLimitIsDeferredFromTemperatureListener();
   await testAdaptivePollIntervalPicksActiveVsIdle();
   await testSessionTrackingCountsACompleteSession();
   await testSessionTrackingIgnoresEndWithNoKnownStart();
