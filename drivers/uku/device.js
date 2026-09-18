@@ -1530,6 +1530,17 @@ class HuumDevice extends Homey.Device {
     const limitingTemp = current != null ? Math.max(target, current) : target;
     const maxFraction = Math.round(getMaxHumidityForTemperature(limitingTemp)) / 100;
 
+    // Clamp the VALUE first, before the max is lowered. Doing it the other
+    // way round left a window where the (still old, too-high) value was
+    // briefly invalid under the new, lower max — Homey appears to reset an
+    // out-of-bounds value to 0 as a side effect of the options change
+    // itself, before this function's own clamp ever got to run (reported
+    // live: 55% at 50°C -> 60°C, real max 40%, landed on 0% instead of 40%).
+    const currentHumidity = this.getCapabilityValue('target_humidity');
+    if (typeof currentHumidity === 'number' && currentHumidity > maxFraction) {
+      await this._setCapabilitySafe('target_humidity', maxFraction);
+    }
+
     if (this.getStoreValue('appliedHumidityMax') !== maxFraction) {
       try {
         await this.setCapabilityOptions('target_humidity', { ...TARGET_HUMIDITY_OPTIONS, max: maxFraction });
@@ -1537,11 +1548,6 @@ class HuumDevice extends Homey.Device {
       } catch (err) {
         this.error('Could not apply humidity limit options:', err.message);
       }
-    }
-
-    const currentHumidity = this.getCapabilityValue('target_humidity');
-    if (typeof currentHumidity === 'number' && currentHumidity > maxFraction) {
-      await this._setCapabilitySafe('target_humidity', maxFraction);
     }
   }
 
