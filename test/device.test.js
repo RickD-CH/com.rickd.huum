@@ -209,21 +209,25 @@ async function testThermostatMigrationInPlace() {
 }
 
 async function testHumidityTileFixAppliesOnce() {
-  // measure_humidity's title drops "current/aktuelle" — existing devices
-  // need this pushed via setCapabilityOptions(); a manifest change alone
-  // doesn't reach an already-paired device. (target_humidity's own
-  // uiComponent/decimals fix moved into _applyHumidityLimit, covered by
-  // testHumidityLimitTracksTemperature.)
-  const device = makeDevice({ capabilities: { measure_humidity: 20 } });
+  // target_humidity's uiComponent was "thermostat" — fine as its own tile
+  // under class:heater, but silently hidden once the device became a real
+  // class:thermostat. measure_humidity's title drops "current/aktuelle".
+  // Existing devices need both pushed via setCapabilityOptions(); a
+  // manifest change alone doesn't reach an already-paired device. This is
+  // a one-off, value-independent push (safe — see _applyHumidityLimit for
+  // why combining an options push with a value change is not).
+  const device = makeDevice({ capabilities: { target_humidity: 0.5, measure_humidity: 20 } });
   await device._applyHumidityTileFix();
+  assert.strictEqual(device.getCapabilityOptions('target_humidity').uiComponent, 'slider');
+  assert.strictEqual(device.getCapabilityOptions('target_humidity').step, 0.05);
   assert.deepStrictEqual(device.getCapabilityOptions('measure_humidity').title, { en: 'Humidity', de: 'Feuchtigkeit' });
   assert.strictEqual(device.getStoreValue('humidityTileFixApplied2'), true);
 
   // Second call is a no-op (guarded by the store flag) — must not re-push.
   device.__capabilityOptions = {};
   await device._applyHumidityTileFix();
-  assert.strictEqual(device.getCapabilityOptions('measure_humidity'), undefined, 'guarded: does not re-apply once the flag is set');
-  console.log('OK: measure_humidity\'s tile title is fixed once for existing devices');
+  assert.strictEqual(device.getCapabilityOptions('target_humidity'), undefined, 'guarded: does not re-apply once the flag is set');
+  console.log('OK: target_humidity/measure_humidity tile options are fixed once for existing devices');
 }
 
 async function testQuickActionFixAppliesOnce() {
@@ -242,50 +246,43 @@ async function testQuickActionFixAppliesOnce() {
 }
 
 async function testHumidityLimitTracksTemperature() {
-  // A static 0-90% slider range let the owner drag target_humidity to 90%
-  // while set to 60°C, where the real steamer ceiling is 40% — the slider
-  // itself gave no hint until _start() rejected/clamped it. Must track
-  // target OR current temperature, whichever is higher, and only ever
-  // clamp DOWN — never re-raise a value on its own. An earlier version
-  // also tried to follow the ceiling back up after it had clamped
-  // something down, but that logic ran from two racing call sites (the
-  // target_temperature listener with a fresh value, and every status poll
-  // with HUUM's possibly-stale reported temperature) and could silently
-  // overwrite a perfectly valid value entered moments later — reported
-  // live: a deliberately-set 55% got reset to 0%. One-directional only.
+  // Value-only: three different variants that also dynamically narrowed
+  // target_humidity's own capabilityOptions.max via setCapabilityOptions()
+  // (options before the value, options after, fully-merged options, fully
+  // hardcoded options) all reproducibly lost the value on the real device
+  // — confirmed via live diagnostics: this function's own read-back showed
+  // the correct clamped value, but the value actually persisted on the
+  // device was 0. Whatever Homey does internally when
+  // setCapabilityOptions() and a value change land together for the same
+  // capability isn't safe here, so this only ever calls setCapabilityValue
+  // (via _setCapabilitySafe) — the same path every other capability in
+  // this app already uses without issue. Only ever clamps DOWN, never
+  // raises a value back up on its own.
   const device = makeDevice({ capabilities: { target_temperature: 60, target_humidity: 0.9 } });
 
   await device._applyHumidityLimit(60);
-  assert.strictEqual(device.getCapabilityOptions('target_humidity').max, 0.4, 'max drops to 40% at 60°C');
-  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'the now-too-high value is clamped down');
-  // Regression: the options push must be the full object every time, never
-  // a merge with getCapabilityOptions()'s return value — confirmed live
-  // that merging can silently drop `step`, and a value that was exactly
-  // valid under the intended 0.05 step then snapped to 0 once Homey
-  // re-validated it against a step that had quietly reverted to its default.
-  assert.strictEqual(device.getCapabilityOptions('target_humidity').step, 0.05, 'step must never be dropped from the options push');
-  assert.strictEqual(device.getCapabilityOptions('target_humidity').uiComponent, 'slider');
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'clamped down to the real max for 60°C (40%)');
 
   // Lowering the temperature raises the max again, but the value — already
-  // valid at 0.4, which is <= the new 0.9 max — is left exactly as is.
+  // valid at 0.4 — is left exactly as is, never raised back up on its own.
   await device._applyHumidityLimit(45);
-  assert.strictEqual(device.getCapabilityOptions('target_humidity').max, 0.9);
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'never raised on its own, even though the ceiling went up');
 
   // A value that's already valid for the new temperature must never be
   // touched — this is the exact bug reported live (a valid 55% reset to 0%).
   await device._setCapabilitySafe('target_humidity', 0.55);
-  await device._applyHumidityLimit(51); // max at 51°C is 45%... still above 0.55? no: 0.45 < 0.55
+  await device._applyHumidityLimit(51); // max at 51°C is 45% -> 0.55 is now too high
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.45, 'clamped down to the real max, exactly once');
   await device._applyHumidityLimit(50); // max at 50°C is 55% -- now valid again, must be left alone
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.45, 'stays exactly where it was clamped to; never bumped back up');
 
   // Current (measured) temperature, if higher than target, is the real
   // limiting factor once heating has overshot the setpoint.
+  await device._setCapabilitySafe('target_humidity', 0.9);
   await device._applyHumidityLimit(45, { temperature: 50 });
-  assert.strictEqual(device.getCapabilityOptions('target_humidity').max, 0.55, 'current temp of 50°C wins over the lower 45° target');
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.55, 'current temp of 50°C (max 55%) wins over the lower 45° target (max 90%)');
 
-  console.log('OK: target_humidity\'s own slider max tracks target/current temperature, only ever clamping down');
+  console.log('OK: target_humidity is clamped down (value only, no capabilityOptions changes) to the real max for target/current temperature');
 }
 
 async function testAdaptivePollIntervalPicksActiveVsIdle() {

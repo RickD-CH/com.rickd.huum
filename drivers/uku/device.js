@@ -33,7 +33,7 @@ const DEFAULT_PROFILES = {
 // exactly valid under the intended 0.05 step snapped to 0 once Homey
 // re-validated it against a step that had quietly reverted to its default.
 const TARGET_HUMIDITY_OPTIONS = {
-  min: 0, step: 0.05, decimals: 0, uiComponent: 'slider',
+  min: 0, max: 0.9, step: 0.05, decimals: 0, uiComponent: 'slider',
   title: { en: 'Target humidity', de: 'Zielfeuchte' },
 };
 const TARGET_TEMPERATURE_OPTIONS = {
@@ -239,9 +239,6 @@ class HuumDevice extends Homey.Device {
       stats: this._statsModel(),
       hasSteamer: this.hasCapability('target_humidity'),
       hasMeter: this._usingPowerMeter(),
-      // TEMPORARY — see _applyHumidityLimit. Remove once the live 0%-instead-
-      // of-real-max bug is confirmed fixed.
-      humidityDebugLog: this.getStoreValue('humidityDebugLog') || [],
     };
   }
 
@@ -1501,80 +1498,37 @@ class HuumDevice extends Homey.Device {
   }
 
   /**
-   * Keeps target_humidity's own slider max honest: a static 0-90% range let
-   * the owner drag it to 90% while set to 60°C, where the steamer's real
-   * ceiling is 40% — the slider itself gave no hint, only _start() would
-   * have rejected/clamped it. Recomputed from target OR current
-   * temperature, whichever is higher (see lib/HuumApi.js), on every status
-   * sync and right when target_temperature changes.
-   *
-   * Deliberately one-directional: only ever clamps DOWN when the current
-   * value is no longer valid. An earlier version also tried to follow the
-   * ceiling back UP (e.g. after a brief >90°C excursion had forced it to
-   * 0%), tracked via a "was this riding the old max" flag — but this
-   * function runs from two independent places (the target_temperature
-   * listener, with the fresh value, and every status poll, with HUUM's
-   * possibly-stale reported temperature) that can race and apply in
-   * either order. That let a stale, hot poll response silently overwrite a
-   * perfectly valid value entered moments later (reported live: a
-   * deliberately-set 55% got reset to 0%). Getting stuck at a low value
-   * after testing an extreme temperature is a minor, one-tap-to-fix
-   * annoyance; silently destroying a valid value during normal use is not
-   * an acceptable trade for that convenience.
+   * Clamps target_humidity down when it's no longer valid for the current
+   * target OR current temperature, whichever is higher (see lib/HuumApi.js
+   * — same rule turnOn() itself enforces). Deliberately VALUE-ONLY: two
+   * earlier versions also dynamically narrowed the slider's own
+   * capabilityOptions.max to match (so the slider's visible range matched
+   * reality, not just the value), but every variant of that — options
+   * before the value, options after, fully-merged options, fully
+   * hardcoded options — reproducibly lost the value on the real device
+   * (confirmed via live diagnostics: this function's own read-back showed
+   * the correct clamped value, but the value actually persisted on the
+   * device was 0). Whatever Homey does internally when
+   * setCapabilityOptions() and a value change land in the same
+   * turn/request for the same capability, it isn't safe here. The slider's
+   * displayed range no longer narrows with temperature — a purely
+   * cosmetic loss — but the value itself is reliably clamped with the
+   * same setCapabilityValue() path every other capability in this app
+   * already uses without issue, and _start() independently refuses to
+   * ever send an invalid combo to HUUM regardless of what the slider shows.
    */
   async _applyHumidityLimit(targetTemp, status) {
-    if (!this.hasCapability('target_humidity') || typeof this.setCapabilityOptions !== 'function') return;
+    if (!this.hasCapability('target_humidity')) return;
     const target = typeof targetTemp === 'number' ? targetTemp : this.getCapabilityValue('target_temperature');
     if (typeof target !== 'number') return;
     const current = status && typeof status.temperature === 'number' ? status.temperature : null;
     const limitingTemp = current != null ? Math.max(target, current) : target;
     const maxFraction = Math.round(getMaxHumidityForTemperature(limitingTemp)) / 100;
-    const beforeValue = this.getCapabilityValue('target_humidity');
 
-    // Clamp the VALUE first. setCapabilityOptions() is documented by Homey
-    // itself as "expensive" and (per the same re-init behaviour noted on
-    // _applyDeviceLimits) can re-initialise the device — doing that *before*
-    // this set risked losing it in the restart, which is almost certainly
-    // why a deliberately-set, still-too-high value was seen reset to 0%
-    // instead of clamped to the real max.
     const currentHumidity = this.getCapabilityValue('target_humidity');
-    let clamped = false;
     if (typeof currentHumidity === 'number' && currentHumidity > maxFraction) {
       await this._setCapabilitySafe('target_humidity', maxFraction);
-      clamped = true;
     }
-
-    // Same reinit-loop guard as _applyDeviceLimits — only push setCapabilityOptions
-    // when the max actually changed.
-    let optionsChanged = false;
-    if (this.getStoreValue('appliedHumidityMax') !== maxFraction) {
-      try {
-        await this.setCapabilityOptions('target_humidity', { ...TARGET_HUMIDITY_OPTIONS, max: maxFraction });
-        await this.setStoreValue('appliedHumidityMax', maxFraction).catch(this.error);
-        optionsChanged = true;
-      } catch (err) {
-        this.error('Could not apply humidity limit:', err.message);
-      }
-    }
-
-    // TEMPORARY diagnostics for a live bug (55% at 49°C -> 51°C landed on 0%
-    // instead of the real 45% max) that hasn't reproduced in any mock/unit
-    // test — remove once resolved. Exposed via getConfig().humidityDebugLog.
-    const afterValue = this.getCapabilityValue('target_humidity');
-    const log = this.getStoreValue('humidityDebugLog') || [];
-    log.unshift({
-      at: new Date().toISOString(),
-      source: status ? 'status-sync' : 'listener',
-      targetTemp: target,
-      currentTemp: current,
-      limitingTemp,
-      maxFraction,
-      beforeValue,
-      afterValue,
-      clamped,
-      optionsChanged,
-    });
-    await this.setStoreValue('humidityDebugLog', log.slice(0, 20)).catch(this.error);
   }
 
   /**
@@ -1591,9 +1545,11 @@ class HuumDevice extends Homey.Device {
   async _applyHumidityTileFix() {
     if (this.getStoreValue('humidityTileFixApplied2') || typeof this.setCapabilityOptions !== 'function') return;
     try {
-      // target_humidity's own uiComponent/decimals fix now lives in
-      // _applyHumidityLimit, which always sends the full options object and
-      // so covers this on its first run too — nothing left to do for it here.
+      // A one-off, value-independent options push — safe, unlike doing this
+      // together with a value clamp (see _applyHumidityLimit).
+      if (this.hasCapability('target_humidity')) {
+        await this.setCapabilityOptions('target_humidity', TARGET_HUMIDITY_OPTIONS);
+      }
       if (this.hasCapability('measure_humidity')) {
         await this.setCapabilityOptions('measure_humidity', MEASURE_HUMIDITY_OPTIONS);
       }
