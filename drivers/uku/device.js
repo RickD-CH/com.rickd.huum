@@ -1505,8 +1505,19 @@ class HuumDevice extends Homey.Device {
     const limitingTemp = current != null ? Math.max(target, current) : target;
     const maxFraction = Math.round(getMaxHumidityForTemperature(limitingTemp)) / 100;
 
+    // Clamp the VALUE first. setCapabilityOptions() is documented by Homey
+    // itself as "expensive" and (per the same re-init behaviour noted on
+    // _applyDeviceLimits) can re-initialise the device — doing that *before*
+    // this set risked losing it in the restart, which is almost certainly
+    // why a deliberately-set, still-too-high value was seen reset to 0%
+    // instead of clamped to the real max.
+    const currentHumidity = this.getCapabilityValue('target_humidity');
+    if (typeof currentHumidity === 'number' && currentHumidity > maxFraction) {
+      await this._setCapabilitySafe('target_humidity', maxFraction);
+    }
+
     // Same reinit-loop guard as _applyDeviceLimits — only push setCapabilityOptions
-    // (which re-initialises the device) when the max actually changed.
+    // when the max actually changed.
     if (this.getStoreValue('appliedHumidityMax') !== maxFraction) {
       const currentOptions = (this.getCapabilityOptions && this.getCapabilityOptions('target_humidity')) || {};
       try {
@@ -1514,13 +1525,7 @@ class HuumDevice extends Homey.Device {
         await this.setStoreValue('appliedHumidityMax', maxFraction).catch(this.error);
       } catch (err) {
         this.error('Could not apply humidity limit:', err.message);
-        return;
       }
-    }
-
-    const currentHumidity = this.getCapabilityValue('target_humidity');
-    if (typeof currentHumidity === 'number' && currentHumidity > maxFraction) {
-      await this._setCapabilitySafe('target_humidity', maxFraction);
     }
   }
 
