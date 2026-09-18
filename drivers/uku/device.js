@@ -1570,7 +1570,7 @@ class HuumDevice extends Homey.Device {
    * steamer duty cycle here rather than an independent sensor reading.
    */
   async _applyHumidityTileFix() {
-    if (this.getStoreValue('humidityTileFixApplied2') || typeof this.setCapabilityOptions !== 'function') return;
+    if (this.getStoreValue('humidityTileFixApplied3') || typeof this.setCapabilityOptions !== 'function') return;
     try {
       // A one-off, value-independent options push — safe, unlike doing this
       // together with a value clamp (see _applyHumidityLimit).
@@ -1580,7 +1580,7 @@ class HuumDevice extends Homey.Device {
       if (this.hasCapability('measure_humidity')) {
         await this.setCapabilityOptions('measure_humidity', MEASURE_HUMIDITY_OPTIONS);
       }
-      await this.setStoreValue('humidityTileFixApplied2', true).catch(this.error);
+      await this.setStoreValue('humidityTileFixApplied3', true).catch(this.error);
     } catch (err) {
       this.error('Could not apply humidity tile fix:', err.message);
     }

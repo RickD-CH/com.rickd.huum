@@ -221,7 +221,7 @@ async function testHumidityTileFixAppliesOnce() {
   assert.strictEqual(device.getCapabilityOptions('target_humidity').uiComponent, 'slider');
   assert.strictEqual(device.getCapabilityOptions('target_humidity').step, 0.05);
   assert.deepStrictEqual(device.getCapabilityOptions('measure_humidity').title, { en: 'Humidity', de: 'Feuchtigkeit' });
-  assert.strictEqual(device.getStoreValue('humidityTileFixApplied2'), true);
+  assert.strictEqual(device.getStoreValue('humidityTileFixApplied3'), true);
 
   // Second call is a no-op (guarded by the store flag) — must not re-push.
   device.__capabilityOptions = {};
