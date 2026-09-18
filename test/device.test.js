@@ -179,9 +179,30 @@ async function testReconcileCapabilitiesAddsAndRemoves() {
 
   await device._reconcileCapabilities({ config: 3 });
   assert.strictEqual(device.hasCapability('target_humidity'), true);
+  assert.strictEqual(device.hasCapability('huum_target_humidity'), true, 'the read-only humidity mirror follows target_humidity');
   assert.strictEqual(device.hasCapability('measure_humidity'), true);
   assert.strictEqual(device.hasCapability('alarm_water'), true);
+  // target_humidity itself was just added fresh (value null) — nothing to
+  // seed from yet; the one-time seed only fires once the slider actually
+  // holds a number (see the dedicated seeding test below).
+  assert.strictEqual(device.getCapabilityValue('huum_target_humidity'), null);
   console.log('OK: _reconcileCapabilities adds steamer capabilities once config reports a steamer');
+}
+
+async function testHumidityMirrorIsSeededOnceFromTheSlider() {
+  // An existing device upgrading straight to this version already has a
+  // real target_humidity value, but huum_target_humidity is brand new (null)
+  // — reconcile should seed it once, not leave it null until the next
+  // profile pick / manual change / heating status.
+  const device = makeDevice({ capabilities: { target_humidity: 0.35 } });
+  await device._reconcileCapabilities({ config: 3 });
+  assert.strictEqual(device.getCapabilityValue('huum_target_humidity'), 35, 'seeded once from the slider\'s current value');
+
+  // Must not clobber a value that's already been set for real afterwards.
+  await device._setCapabilitySafe('huum_target_humidity', 55);
+  await device._reconcileCapabilities({ config: 3 });
+  assert.strictEqual(device.getCapabilityValue('huum_target_humidity'), 55, 'does not re-seed once it already holds a number');
+  console.log('OK: the read-only humidity mirror is seeded once from the slider for existing devices');
 }
 
 async function testThermostatMigrationInPlace() {
@@ -252,10 +273,15 @@ async function testHumidityLimitTracksTemperature() {
   // (_applyHumidityLimitNow); _applyHumidityLimit itself only schedules
   // this via setTimeout, covered separately. Only ever clamps DOWN, never
   // raises a value back up on its own.
-  const device = makeDevice({ capabilities: { target_temperature: 60, target_humidity: 0.9 } });
+  const device = makeDevice({
+    capabilities: {
+      target_temperature: 60, target_humidity: 0.9, huum_target_humidity: 90,
+    },
+  });
 
   await device._applyHumidityLimitNow(60);
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'clamped down to the real max for 60°C (40%)');
+  assert.strictEqual(device.getCapabilityValue('huum_target_humidity'), 40, 'read-only mirror clamped alongside the slider');
 
   // Lowering the temperature raises the max again, but the value — already
   // valid at 0.4 — is left exactly as is, never raised back up on its own.
@@ -267,6 +293,7 @@ async function testHumidityLimitTracksTemperature() {
   await device._setCapabilitySafe('target_humidity', 0.55);
   await device._applyHumidityLimitNow(51); // max at 51°C is 45% -> 0.55 is now too high
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.45, 'clamped down to the real max, exactly once');
+  assert.strictEqual(device.getCapabilityValue('huum_target_humidity'), 45, 'mirror follows the same clamp');
   await device._applyHumidityLimitNow(50); // max at 50°C is 55% -- now valid again, must be left alone
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.45, 'stays exactly where it was clamped to; never bumped back up');
 
@@ -1074,7 +1101,9 @@ async function testSessionEnergyFromMeterDelta() {
 
 async function testStartProfilePickerFillsTheSliders() {
   const device = makeDevice({
-    capabilities: { thermostat_mode: 'off', huum_start_profile: 'manual', target_temperature: 80, target_humidity: 0.2 },
+    capabilities: {
+      thermostat_mode: 'off', huum_start_profile: 'manual', target_temperature: 80, target_humidity: 0.2, huum_target_humidity: 20,
+    },
   });
   device.__store.profile2Temperature = 50;
   device.__store.profile2Humidity = 55;
@@ -1091,12 +1120,35 @@ async function testStartProfilePickerFillsTheSliders() {
   await device.homey.__timers[0].fn();
   assert.strictEqual(device.getCapabilityValue('target_temperature'), 50, 'slider jumps to the profile temp once deferred');
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.55, 'slider jumps to the profile humidity once deferred');
+  // The read-only mirror is filled from the same trusted profile config,
+  // independent of whatever the (possibly buggy) slider itself ends up
+  // showing — see _applyHumidityLimit's doc comment.
+  assert.strictEqual(device.getCapabilityValue('huum_target_humidity'), 55, 'read-only mirror also reflects the profile humidity');
   assert.strictEqual(device.getCapabilityValue('huum_start_profile'), 'profile2');
 
   // A manual slider nudge afterwards drops back to "manual".
   await device.triggerCapabilityListener('target_temperature', 62);
   assert.strictEqual(device.getCapabilityValue('huum_start_profile'), 'manual', 'manual tweak clears the profile');
   console.log('OK: picking a profile fills the target sliders (deferred); a manual tweak clears the pick');
+}
+
+async function testReliableTargetHumidityFractionPrefersTheMirror() {
+  // Backs getPublicState()/getWidgetState()'s targetHumidity field — must
+  // never surface the settable slider's value directly (it can be wrong,
+  // see _applyHumidityLimit's doc comment) when a trustworthy mirror exists.
+  const noSteamer = makeDevice({ capabilities: { thermostat_mode: 'off' } });
+  assert.strictEqual(noSteamer._reliableTargetHumidityFraction(), null, 'no steamer -> no humidity at all');
+
+  const mirrored = makeDevice({ capabilities: { target_humidity: 1, huum_target_humidity: 55 } });
+  assert.strictEqual(mirrored._reliableTargetHumidityFraction(), 0.55, 'prefers the reliable mirror over the (here: wrong) slider value');
+
+  const notSeededYet = makeDevice({ capabilities: { target_humidity: 0.3, huum_target_humidity: null } });
+  assert.strictEqual(notSeededYet._reliableTargetHumidityFraction(), 0.3, 'falls back to the slider while the mirror is still null');
+
+  const preMigration = makeDevice({ capabilities: { target_humidity: 0.3 } });
+  assert.strictEqual(preMigration._reliableTargetHumidityFraction(), 0.3, 'falls back to the slider on a device not yet reconciled with the mirror capability');
+
+  console.log('OK: _reliableTargetHumidityFraction() prefers huum_target_humidity, falling back to the slider only when the mirror is unavailable');
 }
 
 (async () => {
@@ -1106,6 +1158,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testHumidityExceedsMaxIsTranslated();
   await testAuthErrorMarksUnavailable();
   await testReconcileCapabilitiesAddsAndRemoves();
+  await testHumidityMirrorIsSeededOnceFromTheSlider();
   await testThermostatMigrationInPlace();
   await testHumidityTileFixAppliesOnce();
   await testQuickActionFixAppliesOnce();
@@ -1137,6 +1190,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testWaterCheckReminderFiresOnStart();
   await testTargetsNotOverwrittenWhileOff();
   await testStartProfilePickerFillsTheSliders();
+  await testReliableTargetHumidityFractionPrefersTheMirror();
   await testScheduledStartFires();
   await testScheduleStartFromFlowParsesInTheHomeyTimezone();
   await testBookingNotificationSubstitutesTheDeviceName();

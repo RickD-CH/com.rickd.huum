@@ -57,6 +57,29 @@
     "url": "https://github.com/RickD-CH/com.rickd.huum/issues"
   },
   "capabilities": {
+    "huum_target_humidity": {
+      "type": "number",
+      "icon": "/assets/huum_target_humidity.svg",
+      "title": {
+        "en": "Target humidity",
+        "de": "Ziel-Feuchtigkeit"
+      },
+      "desc": {
+        "en": "Read-only display of the target humidity that will be used for the next start, kept accurate even in the rare case where the settable slider above briefly shows a stale value.",
+        "de": "Reine Anzeige der Zielfeuchte, die beim nächsten Start verwendet wird — bleibt korrekt, auch wenn der einstellbare Regler oben in seltenen Fällen kurzzeitig einen veralteten Wert zeigt."
+      },
+      "units": {
+        "en": "%",
+        "de": "%"
+      },
+      "min": 0,
+      "max": 100,
+      "decimals": 0,
+      "getable": true,
+      "setable": false,
+      "uiComponent": "sensor",
+      "insights": true
+    },
     "huum_time_remaining": {
       "type": "number",
       "icon": "/assets/huum_time_remaining.svg",
@@ -639,6 +662,7 @@
         "target_temperature",
         "measure_temperature",
         "target_humidity",
+        "huum_target_humidity",
         "measure_humidity",
         "huum_start_profile",
         "huum_refresh",

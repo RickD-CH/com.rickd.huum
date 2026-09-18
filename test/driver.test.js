@@ -85,6 +85,7 @@ async function testPairingDetectsSteamerAndLight() {
     assert.strictEqual(device.name, 'Garden Sauna');
     assert.strictEqual(device.data.id, 'both@example.com');
     assert.ok(device.capabilities.includes('target_humidity'), 'steamer detected -> target_humidity present');
+    assert.ok(device.capabilities.includes('huum_target_humidity'), 'steamer detected -> read-only humidity mirror present too');
     assert.ok(device.capabilities.includes('onoff.light'), 'light detected -> onoff.light present');
   });
   console.log('OK: pairing detects steamer+light (config=3) and includes the right capabilities');
@@ -121,6 +122,7 @@ async function testPairingWithoutSteamerOmitsHumidityCapabilities() {
     await session.handlers.login({ username: 'lightonly@example.com', password: 'right' });
     const [device] = await session.handlers.list_devices();
     assert.ok(!device.capabilities.includes('target_humidity'), 'no steamer -> no target_humidity');
+    assert.ok(!device.capabilities.includes('huum_target_humidity'), 'no steamer -> no read-only humidity mirror either');
     assert.ok(!device.capabilities.includes('alarm_water'), 'no steamer -> no alarm_water');
     assert.ok(device.capabilities.includes('onoff.light'), 'light still detected');
   });

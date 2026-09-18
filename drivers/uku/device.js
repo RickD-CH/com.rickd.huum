@@ -777,6 +777,15 @@ class HuumDevice extends Homey.Device {
     if (this.hasCapability('target_humidity')) {
       this.registerCapabilityListener('target_humidity', async (value) => {
         const humidityPercent = Math.round(value * 100);
+        // Read-only mirror for the device card (huum_target_humidity):
+        // always correct even when the settable slider itself briefly shows
+        // a wrong value (confirmed Homey platform bug, see
+        // _applyHumidityLimit's doc comment). Deferred: this is a
+        // *different* capability than the one whose listener we're in.
+        if (this.hasCapability('huum_target_humidity')) {
+          this.homey.setTimeout(() => this._setCapabilitySafe('huum_target_humidity', humidityPercent)
+            .catch((err) => this.error('Humidity display mirror failed:', err.message)), 0);
+        }
         if (!this._isHeating()) {
           // Keep it locally; it will be sent along with the next start.
           await this.setCapabilityValue('target_humidity', value).catch(this.error);
@@ -831,6 +840,7 @@ class HuumDevice extends Homey.Device {
           await this._setCapabilitySafe('target_temperature', temperature);
           if (typeof humidityPercent === 'number') {
             await this._setCapabilitySafe('target_humidity', humidityPercent / 100);
+            await this._setCapabilitySafe('huum_target_humidity', humidityPercent);
           }
         })().catch((err) => this.error('Deferred profile-pick apply failed:', err.message)), 0);
       });
@@ -1056,6 +1066,10 @@ class HuumDevice extends Homey.Device {
 
     const wanted = new Map([
       ['target_humidity', hasSteamer],
+      // Read-only mirror of target_humidity's intended value, always
+      // correct even when the settable slider isn't (see
+      // _applyHumidityLimit's doc comment).
+      ['huum_target_humidity', hasSteamer],
       ['measure_humidity', hasSteamer && humiditySensor],
       ['alarm_water', hasSteamer && waterSensor],
       ['onoff.light', hasLight],
@@ -1094,6 +1108,16 @@ class HuumDevice extends Homey.Device {
           .catch((err) => this.error(`Failed to remove capability ${capabilityId}:`, err.message));
       }
     }
+
+    // Seed the read-only mirror once so it isn't stuck at null before the
+    // first profile pick / manual change / heating status sets it.
+    if (this.hasCapability('huum_target_humidity') && this.hasCapability('target_humidity')
+      && this.getCapabilityValue('huum_target_humidity') == null) {
+      const th = this.getCapabilityValue('target_humidity');
+      if (typeof th === 'number') {
+        await this._setCapabilitySafe('huum_target_humidity', Math.round(th * 100));
+      }
+    }
   }
 
   async _applyStatus(status) {
@@ -1116,6 +1140,7 @@ class HuumDevice extends Homey.Device {
         // Homey's target_humidity is a 0-1 fraction shown as %, unlike
         // measure_humidity which is a plain 0-100 reading.
         await this._setCapabilitySafe('target_humidity', status.targetHumidity / 100);
+        await this._setCapabilitySafe('huum_target_humidity', status.targetHumidity);
       }
     }
     // _setCapabilitySafe is a no-op when the capability was removed (door
@@ -1518,7 +1543,11 @@ class HuumDevice extends Homey.Device {
    * between the UI and the stored value). Options are never touched here
    * again; the slider's displayed range stays static (cosmetic loss), but
    * _start() independently refuses to ever send an invalid combo to HUUM
-   * regardless of what it shows.
+   * regardless of what it shows. huum_target_humidity (a plain custom
+   * capability, not Homey's special-cased target_humidity) mirrors the
+   * intended value as a read-only sensor tile alongside the slider, so the
+   * device card always has one reliable number even when the slider itself
+   * doesn't.
    */
   async _applyHumidityLimit(targetTemp, status) {
     // Always deferred via setTimeout(...,0), even though this only ever
@@ -1543,6 +1572,7 @@ class HuumDevice extends Homey.Device {
     const currentHumidity = this.getCapabilityValue('target_humidity');
     if (typeof currentHumidity === 'number' && currentHumidity > maxFraction) {
       await this._setCapabilitySafe('target_humidity', maxFraction);
+      await this._setCapabilitySafe('huum_target_humidity', Math.round(maxFraction * 100));
     }
   }
 
@@ -1643,7 +1673,9 @@ class HuumDevice extends Homey.Device {
       measureTemperature: this.getCapabilityValue('measure_temperature') ?? null,
       targetTemperature: this.getCapabilityValue('target_temperature') ?? null,
       measureHumidity: this.hasCapability('measure_humidity') ? (this.getCapabilityValue('measure_humidity') ?? null) : null,
-      targetHumidity: this.hasCapability('target_humidity') ? (this.getCapabilityValue('target_humidity') ?? null) : null,
+      // Sourced from the read-only mirror, not the settable target_humidity
+      // slider itself — see _applyHumidityLimit's doc comment.
+      targetHumidity: this._reliableTargetHumidityFraction(),
       timeRemaining: this.getCapabilityValue('huum_time_remaining') ?? null,
       doorOpen: this.hasCapability('alarm_contact') ? !!this.getCapabilityValue('alarm_contact') : null,
       measurePower: this.hasCapability('measure_power') ? (this.getCapabilityValue('measure_power') ?? null) : null,
@@ -1663,11 +1695,27 @@ class HuumDevice extends Homey.Device {
     }
   }
 
+  /**
+   * target_humidity as a 0-1 fraction, preferring the read-only
+   * huum_target_humidity mirror (always correct) over the settable slider
+   * itself (can briefly show a wrong value — see _applyHumidityLimit's doc
+   * comment). Falls back to the slider for a device not yet reconciled.
+   */
+  _reliableTargetHumidityFraction() {
+    if (!this.hasCapability('target_humidity')) return null;
+    if (this.hasCapability('huum_target_humidity')) {
+      const mirrored = this.getCapabilityValue('huum_target_humidity');
+      if (typeof mirrored === 'number') return mirrored / 100;
+    }
+    return this.getCapabilityValue('target_humidity') ?? null;
+  }
+
   /** Compact live state for the dashboard widget. */
   getWidgetState() {
     const s = this._lastStatus || {};
-    const th = this.hasCapability('target_humidity')
-      ? Math.round((this.getCapabilityValue('target_humidity') || 0) * 100)
+    const thFraction = this._reliableTargetHumidityFraction();
+    const th = this.hasCapability('target_humidity') && typeof thFraction === 'number'
+      ? Math.round(thFraction * 100)
       : null;
     return {
       name: this.getName(),

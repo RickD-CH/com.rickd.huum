@@ -68,7 +68,7 @@ class HuumDriver extends Homey.Driver {
         // Only add humidity control/reading and the "no water" alarm for
         // saunas that actually have a steamer module — this is the
         // detection the app now does for you.
-        capabilities.push('target_humidity', 'measure_humidity', 'alarm_water');
+        capabilities.push('target_humidity', 'huum_target_humidity', 'measure_humidity', 'alarm_water');
       }
       if (hasLight) {
         capabilities.push('onoff.light');
