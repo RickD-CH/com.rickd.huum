@@ -239,6 +239,8 @@ class HuumDevice extends Homey.Device {
       stats: this._statsModel(),
       hasSteamer: this.hasCapability('target_humidity'),
       hasMeter: this._usingPowerMeter(),
+      // TEMPORARY — see _applyHumidityLimit. Remove once resolved.
+      humidityDebugLog: this.getStoreValue('humidityDebugLog') || [],
     };
   }
 
@@ -1533,10 +1535,27 @@ class HuumDevice extends Homey.Device {
     const limitingTemp = current != null ? Math.max(target, current) : target;
     const maxFraction = Math.round(getMaxHumidityForTemperature(limitingTemp)) / 100;
 
-    const currentHumidity = this.getCapabilityValue('target_humidity');
-    if (typeof currentHumidity === 'number' && currentHumidity > maxFraction) {
+    const beforeValue = this.getCapabilityValue('target_humidity');
+    let afterValue = beforeValue;
+    if (typeof beforeValue === 'number' && beforeValue > maxFraction) {
       await this._setCapabilitySafe('target_humidity', maxFraction);
+      afterValue = this.getCapabilityValue('target_humidity');
     }
+
+    // TEMPORARY diagnostics, round 2 — remove once resolved. Exposed via
+    // getConfig().humidityDebugLog.
+    const log = this.getStoreValue('humidityDebugLog') || [];
+    log.unshift({
+      at: new Date().toISOString(),
+      source: status ? 'status-sync' : 'deferred-listener',
+      targetTemp: target,
+      currentTemp: current,
+      limitingTemp,
+      maxFraction,
+      beforeValue,
+      afterValue,
+    });
+    await this.setStoreValue('humidityDebugLog', log.slice(0, 20)).catch(this.error);
   }
 
   /**
