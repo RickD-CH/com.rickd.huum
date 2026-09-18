@@ -3,6 +3,7 @@
 const Homey = require('homey');
 const {
   HuumApi, HuumAuthError, HuumSafetyError, STEAMER_ERROR_TEXTS, CONFIG_FLAGS, configHasFlag,
+  getMaxHumidityForTemperature,
 } = require('../../lib/HuumApi');
 
 const DEFAULT_POLL_INTERVAL_S = 30;
@@ -23,6 +24,31 @@ const DEFAULT_PROFILES = {
   profile1Name: 'Finnisch', profile1Temperature: 90, profile1Humidity: 0,
   profile2Name: 'Feucht', profile2Temperature: 50, profile2Humidity: 55,
   profile3Name: 'Family', profile3Temperature: 75, profile3Humidity: 25,
+};
+
+// Full capabilitiesOptions for capabilities this app updates at runtime via
+// setCapabilityOptions(). Always sent whole — never merged with
+// getCapabilityOptions()'s return value. Confirmed live: that merge can
+// silently drop fields (observed losing `step`), and a value that was
+// exactly valid under the intended 0.05 step snapped to 0 once Homey
+// re-validated it against a step that had quietly reverted to its default.
+const TARGET_HUMIDITY_OPTIONS = {
+  min: 0, max: 0.9, step: 0.05, decimals: 0, uiComponent: 'slider',
+  title: { en: 'Target humidity', de: 'Zielfeuchte' },
+};
+const TARGET_TEMPERATURE_OPTIONS = {
+  step: 1, decimals: 0, uiComponent: 'thermostat',
+  title: { en: 'Target temperature', de: 'Zieltemperatur' },
+};
+const THERMOSTAT_MODE_OPTIONS = {
+  uiQuickAction: true,
+  values: [
+    { id: 'heat', title: { en: 'Heat', de: 'Heizen' } },
+    { id: 'off', title: { en: 'Off', de: 'Aus' } },
+  ],
+};
+const MEASURE_HUMIDITY_OPTIONS = {
+  decimals: 0, title: { en: 'Humidity', de: 'Feuchtigkeit' },
 };
 
 class HuumDevice extends Homey.Device {
@@ -235,15 +261,46 @@ class HuumDevice extends Homey.Device {
         patch.totalCost = price > 0 ? round2(m * price) : (this.getStoreValue('totalCost') || 0);
       }
     }
+    const humidityClamped = [];
     if (Array.isArray(profiles)) {
       profiles.forEach((p, i) => {
         const n = i + 1;
         if (p && p.name != null) patch[`profile${n}Name`] = String(p.name).slice(0, 40);
+
+        // Track the profile's *effective* temperature/humidity (falling back
+        // to what's already stored for a field this save doesn't touch) so
+        // the humidity-limit check below sees the real resulting combo.
+        let temperature = this._cfg(`profile${n}Temperature`, null);
         if (p && p.temperature != null && !Number.isNaN(Number(p.temperature))) {
-          patch[`profile${n}Temperature`] = Math.round(Number(p.temperature));
+          temperature = Math.round(Number(p.temperature));
+          patch[`profile${n}Temperature`] = temperature;
         }
+        let humidity = this._cfg(`profile${n}Humidity`, null);
         if (p && p.humidity != null && !Number.isNaN(Number(p.humidity))) {
-          patch[`profile${n}Humidity`] = Math.round(Number(p.humidity));
+          humidity = Math.round(Number(p.humidity));
+          patch[`profile${n}Humidity`] = humidity;
+        }
+
+        // Same steamer duty-cycle limit HuumApi#turnOn enforces at start
+        // time — clamped here too so a profile can't be *saved* in a state
+        // that's guaranteed to fail every time it's used to start the sauna.
+        // Clamped rather than rejected: the settings page re-renders from
+        // the returned config right after save, so the owner sees the
+        // corrected value immediately instead of losing the whole edit.
+        // humidityClamped is reported back so the page can tell the owner
+        // *why* the number they typed changed underneath them.
+        if (typeof temperature === 'number' && typeof humidity === 'number' && humidity > 0) {
+          const maxHumidity = getMaxHumidityForTemperature(temperature);
+          if (humidity > maxHumidity) {
+            patch[`profile${n}Humidity`] = maxHumidity;
+            humidityClamped.push({
+              index: i,
+              name: patch[`profile${n}Name`] || this._cfg(`profile${n}Name`, `Profil ${n}`),
+              temperature,
+              requested: humidity,
+              maxHumidity,
+            });
+          }
         }
       });
     }
@@ -276,7 +333,9 @@ class HuumDevice extends Homey.Device {
     await this._setCfg(patch);
     this._scheduleNextPoll();
     await this.applyPowerConfig();
-    return this.getConfig();
+    const config = this.getConfig();
+    if (humidityClamped.length) config.humidityClamped = humidityClamped;
+    return config;
   }
 
   async applyPowerConfig() {
@@ -480,7 +539,7 @@ class HuumDevice extends Homey.Device {
     this._autoStopTimeout = this.homey.setTimeout(() => {
       if (capped) { this._scheduleAutoStop(); return; }
       this.setStoreValue('autoStopAt', null).catch(this.error);
-      this.triggerCapabilityListener('onoff', false)
+      this.triggerCapabilityListener('thermostat_mode', 'off')
         .catch((err) => this.error('Auto-off failed:', err.message));
     }, Math.min(delay, MAX));
   }
@@ -517,7 +576,7 @@ class HuumDevice extends Homey.Device {
         await this._start(temp, hum);
         await this._maybeWaterCheckReminder();
       }
-      await this._setCapabilitySafe('onoff', true);
+      await this._setThermostatMode('heat');
 
       if (b.autoStopMinutes) {
         await this.setStoreValue('autoStopAt', Date.now() + b.autoStopMinutes * 60 * 1000).catch(this.error);
@@ -693,13 +752,18 @@ class HuumDevice extends Homey.Device {
   }
 
   _registerCapabilityListeners() {
-    this.registerCapabilityListener('onoff', (value) => this._setPower(value));
+    this.registerCapabilityListener('thermostat_mode', (value) => this._setPower(value === 'heat'));
+    // Plain boolean mirror, purely for the mobile Quick Action toggle (see
+    // _setThermostatMode) — routes through the same _setPower().
+    this.registerCapabilityListener('huum_power', (value) => this._setPower(!!value));
 
     this.registerCapabilityListener('target_temperature', async (value) => {
+      // Clamp humidity down for the *new* temperature right away, if needed.
+      await this._applyHumidityLimit(value);
       // The HUUM API has no separate "set temperature while off" endpoint;
       // it only accepts a temperature as part of /start. If the heater is
       // off we just keep the value locally for the next start.
-      if (!this.getCapabilityValue('onoff')) {
+      if (!this._isHeating()) {
         await this._clearStartProfileOnManualChange();
         return;
       }
@@ -713,7 +777,16 @@ class HuumDevice extends Homey.Device {
     if (this.hasCapability('target_humidity')) {
       this.registerCapabilityListener('target_humidity', async (value) => {
         const humidityPercent = Math.round(value * 100);
-        if (!this.getCapabilityValue('onoff')) {
+        // Read-only mirror for the device card (huum_target_humidity):
+        // always correct even when the settable slider itself briefly shows
+        // a wrong value (confirmed Homey platform bug, see
+        // _applyHumidityLimit's doc comment). Deferred: this is a
+        // *different* capability than the one whose listener we're in.
+        if (this.hasCapability('huum_target_humidity')) {
+          this.homey.setTimeout(() => this._setCapabilitySafe('huum_target_humidity', humidityPercent)
+            .catch((err) => this.error('Humidity display mirror failed:', err.message)), 0);
+        }
+        if (!this._isHeating()) {
           // Keep it locally; it will be sent along with the next start.
           await this.setCapabilityValue('target_humidity', value).catch(this.error);
           await this._clearStartProfileOnManualChange();
@@ -748,18 +821,28 @@ class HuumDevice extends Homey.Device {
         const temperature = this._cfg(`${value}Temperature`, null);
         if (typeof temperature !== 'number') return; // profile not configured yet
 
-        if (this.getCapabilityValue('onoff')) {
+        if (this._isHeating()) {
           // Already heating — actually switch the sauna to this profile now.
           await this.startWithProfile(value);
           return;
         }
         // Off — reflect the profile in the target sliders so it's clear what
-        // the next start will use (and _applyStatus won't overwrite it while off).
-        await this._setCapabilitySafe('target_temperature', temperature);
-        if (this.hasCapability('target_humidity')) {
-          const hum = this._cfg(`${value}Humidity`, null);
-          if (typeof hum === 'number') await this._setCapabilitySafe('target_humidity', hum / 100);
-        }
+        // the next start will use (and _applyStatus won't overwrite it while
+        // off). Deferred via setTimeout(...,0): Homey's SDK silently reverts
+        // a *different* capability's value change made synchronously from
+        // inside a listener (confirmed on the Homey community forum) —
+        // target_temperature and target_humidity are both different
+        // capabilities from huum_start_profile itself, so setting them
+        // inline here was getting lost the same way the temperature
+        // listener's humidity clamp used to.
+        const humidityPercent = this.hasCapability('target_humidity') ? this._cfg(`${value}Humidity`, null) : null;
+        this.homey.setTimeout(() => (async () => {
+          await this._setCapabilitySafe('target_temperature', temperature);
+          if (typeof humidityPercent === 'number') {
+            await this._setCapabilitySafe('target_humidity', humidityPercent / 100);
+            await this._setCapabilitySafe('huum_target_humidity', humidityPercent);
+          }
+        })().catch((err) => this.error('Deferred profile-pick apply failed:', err.message)), 0);
       });
     }
   }
@@ -773,7 +856,7 @@ class HuumDevice extends Homey.Device {
   }
 
   /**
-   * The profile id the device's onoff toggle should start with, or null for
+   * The profile id switching the sauna on should start with, or null for
    * "use the last target temperature/humidity" (the `manual` choice, or a
    * profile that has no temperature configured yet).
    */
@@ -784,15 +867,26 @@ class HuumDevice extends Homey.Device {
     return typeof this._cfg(`${p}Temperature`, null) === 'number' ? p : null;
   }
 
-  /** Turn the sauna on/off (the onoff capability listener). */
+  /** Whether the sauna is currently commanded on, per thermostat_mode. */
+  _isHeating() {
+    return this.getCapabilityValue('thermostat_mode') === 'heat';
+  }
+
+  /** Sets thermostat_mode and its boolean Quick Action mirror (huum_power) together. */
+  async _setThermostatMode(mode) {
+    await this._setCapabilitySafe('thermostat_mode', mode);
+    await this._setCapabilitySafe('huum_power', mode === 'heat');
+  }
+
+  /** Turn the sauna on/off (the thermostat_mode capability listener). */
   async _setPower(on) {
-    const wasOn = !!this.getCapabilityValue('onoff');
+    const wasOn = this._isHeating();
     if (on) {
       const profile = this._pendingStartProfile();
       if (profile) {
         // startWithProfile() runs the water-check reminder + status refresh.
         await this.startWithProfile(profile);
-        await this._setCapabilitySafe('onoff', true);
+        await this._setThermostatMode('heat');
         return;
       }
       const temperature = this.getCapabilityValue('target_temperature') || 80;
@@ -803,7 +897,7 @@ class HuumDevice extends Homey.Device {
     }
     // The command above already succeeded; a follow-up status-refresh hiccup
     // must not make the action look like it failed.
-    await this._setCapabilitySafe('onoff', on);
+    await this._setThermostatMode(on ? 'heat' : 'off');
     await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
   }
 
@@ -836,10 +930,13 @@ class HuumDevice extends Homey.Device {
    * door contact is wired up).
    */
   _sensorPresent(kind, status) {
-    const mode = kind === 'water' ? this.getSetting('waterSensorMode') : this.getSetting('doorSensorMode');
+    const settingId = { water: 'waterSensorMode', door: 'doorSensorMode', humidity: 'humiditySensorMode' }[kind];
+    const mode = this.getSetting(settingId);
     if (mode === 'present') return true;
     if (mode === 'absent') return false;
     if (kind === 'water') return configHasFlag(status && status.config, CONFIG_FLAGS.STEAMER);
+    // 'auto' for door/humidity: HUUM's API gives no signal either way —
+    // assume present (today's long-standing default behaviour).
     return true;
   }
 
@@ -872,6 +969,7 @@ class HuumDevice extends Homey.Device {
     }
     try {
       const args = { temperature, humidity: humidityPercent };
+      if (last && typeof last.temperature === 'number') args.currentTemperature = last.temperature;
       if (!this._sensorPresent('door', this._lastStatus)) {
         // No door contact wired up → the API would otherwise report the
         // door as permanently open and block every start.
@@ -885,7 +983,9 @@ class HuumDevice extends Homey.Device {
         throw doorErr;
       }
       if (err.code === 'humidity_exceeds_max') {
-        throw new Error(this.homey.__('errors.humidity_exceeds_max', err.data));
+        const humidityErr = new Error(this.homey.__('errors.humidity_exceeds_max', err.data));
+        humidityErr.code = 'humidity_exceeds_max';
+        throw humidityErr;
       }
       // Anything else (network error, temperature out of range, ...) is
       // re-thrown as-is — Homey shows err.message to the user either way,
@@ -896,7 +996,7 @@ class HuumDevice extends Homey.Device {
 
   /** Used by the "start_with_temperature_and_humidity" Flow action card. */
   async startWithTemperatureAndHumidity(temperature, humidityPercent) {
-    const wasOff = !this.getCapabilityValue('onoff');
+    const wasOff = !this._isHeating();
     await this._start(temperature, humidityPercent);
     if (wasOff) await this._maybeWaterCheckReminder();
     await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
@@ -939,14 +1039,38 @@ class HuumDevice extends Homey.Device {
    */
   async _reconcileCapabilities(status) {
     status = status || {};
+
+    if (this.getClass() !== 'thermostat') {
+      await this.setClass('thermostat').catch((err) => this.error('setClass(thermostat) failed:', err.message));
+    }
+
+    // One-off rename, in place (no remove+re-pair, no data loss): the old
+    // measure_temperature.room -> measure_temperature migration used to be
+    // the *fix* for Homey's composite thermostat dial mislabelling "off" as
+    // "heating toward X°". Now that thermostat_mode (not onoff) tells that
+    // dial the real on/off state, re-pairing with target_temperature is the
+    // point — Homey shows the actual current temperature alongside the
+    // target instead of it being a separate, easy-to-miss tile.
+    if (this.hasCapability('measure_temperature.room') && !this.hasCapability('measure_temperature')) {
+      const roomTemp = this.getCapabilityValue('measure_temperature.room');
+      await this.addCapability('measure_temperature')
+        .catch((err) => this.error('add measure_temperature:', err.message));
+      if (roomTemp != null) await this.setCapabilityValue('measure_temperature', roomTemp).catch(this.error);
+    }
+
     const hasSteamer = configHasFlag(status.config, CONFIG_FLAGS.STEAMER);
     const hasLight = configHasFlag(status.config, CONFIG_FLAGS.LIGHT);
     const waterSensor = this._sensorPresent('water', status);
     const doorSensor = this._sensorPresent('door', status);
+    const humiditySensor = this._sensorPresent('humidity', status);
 
     const wanted = new Map([
       ['target_humidity', hasSteamer],
-      ['measure_humidity', hasSteamer],
+      // Read-only mirror of target_humidity's intended value, always
+      // correct even when the settable slider isn't (see
+      // _applyHumidityLimit's doc comment).
+      ['huum_target_humidity', hasSteamer],
+      ['measure_humidity', hasSteamer && humiditySensor],
       ['alarm_water', hasSteamer && waterSensor],
       ['onoff.light', hasLight],
       ['alarm_contact', doorSensor],
@@ -955,12 +1079,21 @@ class HuumDevice extends Homey.Device {
       ['huum_refresh', true],
       ['huum_remote_blocked', true],
       ['huum_booking_status', true],
-      // Split from the plain capability so Homey stops pairing it with
-      // target_temperature into a "heating to X" thermostat dial.
-      ['measure_temperature.room', true],
-      ['measure_temperature', false],
-      // Retired: drop it from devices paired by the version that briefly had it.
-      ['thermostat_mode', false],
+      ['measure_temperature', true],
+      // Retired in favour of the plain capability, now that it's safe to
+      // pair with target_temperature again (see above).
+      ['measure_temperature.room', false],
+      // thermostat_mode replaces onoff: Homey's thermostat-class dial reads
+      // it directly for on/off state instead of inferring "heating" from
+      // target > measured, which ignored onoff entirely and showed "heating
+      // toward X°" even while the sauna was fully off.
+      ['thermostat_mode', true],
+      // Plain boolean mirror of thermostat_mode: Homey's mobile "Quick
+      // Action" picker only lists boolean toggle/button capabilities, not
+      // thermostat_mode's heat/off dropdown, so there's no way to get a
+      // one-tap start/stop otherwise.
+      ['huum_power', true],
+      ['onoff', false],
     ]);
 
     for (const [capabilityId, shouldHave] of wanted) {
@@ -975,10 +1108,20 @@ class HuumDevice extends Homey.Device {
           .catch((err) => this.error(`Failed to remove capability ${capabilityId}:`, err.message));
       }
     }
+
+    // Seed the read-only mirror once so it isn't stuck at null before the
+    // first profile pick / manual change / heating status sets it.
+    if (this.hasCapability('huum_target_humidity') && this.hasCapability('target_humidity')
+      && this.getCapabilityValue('huum_target_humidity') == null) {
+      const th = this.getCapabilityValue('target_humidity');
+      if (typeof th === 'number') {
+        await this._setCapabilitySafe('huum_target_humidity', Math.round(th * 100));
+      }
+    }
   }
 
   async _applyStatus(status) {
-    await this._setCapabilitySafe('onoff', status.isHeating);
+    await this._setThermostatMode(status.isHeating ? 'heat' : 'off');
     // A pending auto-off only makes sense while this same session runs — the
     // moment the sauna is off (manually, at the panel, or the UKU's own
     // limit) forget it so it can't clobber a later session.
@@ -997,6 +1140,7 @@ class HuumDevice extends Homey.Device {
         // Homey's target_humidity is a 0-1 fraction shown as %, unlike
         // measure_humidity which is a plain 0-100 reading.
         await this._setCapabilitySafe('target_humidity', status.targetHumidity / 100);
+        await this._setCapabilitySafe('huum_target_humidity', status.targetHumidity);
       }
     }
     // _setCapabilitySafe is a no-op when the capability was removed (door
@@ -1013,6 +1157,9 @@ class HuumDevice extends Homey.Device {
     await this._syncTimeRemaining(status);
     await this._trackSessionStats(status);
     await this._applyDeviceLimits(status);
+    await this._applyHumidityLimit(this.getCapabilityValue('target_temperature'), status);
+    await this._applyHumidityTileFix();
+    await this._applyQuickActionFix();
     await this._syncInfoSettings(status);
 
     return status;
@@ -1025,8 +1172,8 @@ class HuumDevice extends Homey.Device {
    * so this app adds one.
    */
   async _syncCurrentTemperature(status) {
-    const previous = this.getCapabilityValue('measure_temperature.room');
-    await this._setCapabilitySafe('measure_temperature.room', status.temperature);
+    const previous = this.getCapabilityValue('measure_temperature');
+    await this._setCapabilitySafe('measure_temperature', status.temperature);
     if (typeof previous !== 'number' || typeof status.temperature !== 'number' || status.temperature === previous) return;
     this.homey.flow.getDeviceTriggerCard('current_temperature_changed')
       .trigger(this, { temperature: status.temperature })
@@ -1221,7 +1368,7 @@ class HuumDevice extends Homey.Device {
     }
     // Estimate: full rated power while heating up, duty-cycled once at temp.
     const full = (Number(this._cfg('heaterPowerKw', DEFAULT_HEATER_POWER_KW)) || DEFAULT_HEATER_POWER_KW) * 1000;
-    const measure = this.getCapabilityValue('measure_temperature.room');
+    const measure = this.getCapabilityValue('measure_temperature');
     const target = this.getCapabilityValue('target_temperature');
     const atTemp = typeof measure === 'number' && typeof target === 'number'
       && measure >= target - HEATUP_MARGIN_C;
@@ -1329,7 +1476,7 @@ class HuumDevice extends Homey.Device {
     if (typeof temperature !== 'number') {
       throw new Error(this.homey.__('errors.profile_not_configured'));
     }
-    const wasOff = !this.getCapabilityValue('onoff');
+    const wasOff = !this._isHeating();
     // Only pass humidity to a sauna that actually has a steamer.
     const humidity = this.hasCapability('target_humidity')
       ? this._cfg(`${profileId}Humidity`, undefined)
@@ -1366,22 +1513,111 @@ class HuumDevice extends Homey.Device {
     // forever if the heater's limits differ from the app.json defaults.
     if (this.getStoreValue('appliedTempLimits') === key) return;
 
-    const current = (this.getCapabilityOptions && this.getCapabilityOptions('target_temperature')) || {};
-    if (current.min === config.minTemp && current.max === config.maxTemp) {
-      await this.setStoreValue('appliedTempLimits', key).catch(this.error);
-      return;
-    }
-
     try {
-      // Merge — a bare { min, max } would drop step/decimals/uiComponent/title.
+      // Always the full options object, never a merge with
+      // getCapabilityOptions()'s return value — confirmed live (on
+      // target_humidity, same pattern) that it doesn't reliably reflect the
+      // complete current options and can silently drop fields like `step`.
       await this.setCapabilityOptions('target_temperature', {
-        ...current,
+        ...TARGET_TEMPERATURE_OPTIONS,
         min: config.minTemp,
         max: config.maxTemp,
       });
       await this.setStoreValue('appliedTempLimits', key).catch(this.error);
     } catch (err) {
       this.error('Could not apply device-reported temperature limits:', err.message);
+    }
+  }
+
+  /**
+   * Clamps target_humidity down when it's no longer valid for the current
+   * target OR current temperature, whichever is higher (see lib/HuumApi.js
+   * — same rule turnOn() itself enforces). Value-only, no dynamic
+   * capabilityOptions.max: every variant that *also* touched options
+   * (before/after/merged/hardcoded value, deferred or not) reproduced a
+   * confirmed target_humidity-specific Homey platform bug in live testing
+   * — this function's own read-back showed the correct value while the
+   * value externally reported by the platform was 0 (matches
+   * github.com/athombv/homey-apps-sdk-issues/issues/422, an open,
+   * unresolved report of exactly this capability being inconsistent
+   * between the UI and the stored value). Options are never touched here
+   * again; the slider's displayed range stays static (cosmetic loss), but
+   * _start() independently refuses to ever send an invalid combo to HUUM
+   * regardless of what it shows. huum_target_humidity (a plain custom
+   * capability, not Homey's special-cased target_humidity) mirrors the
+   * intended value as a read-only sensor tile alongside the slider, so the
+   * device card always has one reliable number even when the slider itself
+   * doesn't.
+   */
+  async _applyHumidityLimit(targetTemp, status) {
+    // Always deferred via setTimeout(...,0), even though this only ever
+    // touches the VALUE now (no capabilityOptions) — the community-forum
+    // reversion behavior isn't specific to combining a value with an
+    // options change, it applies to *any* synchronous write to a
+    // *different* capability from inside a listener (this is called
+    // directly from the target_temperature listener). Safe to call from
+    // anywhere, listener or not.
+    this.homey.setTimeout(() => this._applyHumidityLimitNow(targetTemp, status)
+      .catch((err) => this.error('Deferred humidity limit failed:', err.message)), 0);
+  }
+
+  async _applyHumidityLimitNow(targetTemp, status) {
+    if (!this.hasCapability('target_humidity')) return;
+    const target = typeof targetTemp === 'number' ? targetTemp : this.getCapabilityValue('target_temperature');
+    if (typeof target !== 'number') return;
+    const current = status && typeof status.temperature === 'number' ? status.temperature : null;
+    const limitingTemp = current != null ? Math.max(target, current) : target;
+    const maxFraction = Math.round(getMaxHumidityForTemperature(limitingTemp)) / 100;
+
+    const currentHumidity = this.getCapabilityValue('target_humidity');
+    if (typeof currentHumidity === 'number' && currentHumidity > maxFraction) {
+      await this._setCapabilitySafe('target_humidity', maxFraction);
+      await this._setCapabilitySafe('huum_target_humidity', Math.round(maxFraction * 100));
+    }
+  }
+
+  /**
+   * One-off nudge for existing devices, run once: target_humidity's
+   * uiComponent was "thermostat", which worked fine as its own tile under
+   * class:heater, but got silently hidden once the device became a real
+   * class:thermostat with target_temperature+measure_temperature as the
+   * *actual* thermostat pairing — Homey only renders one "thermostat"
+   * uiComponent per device. Switched to "slider", a plain settable tile
+   * regardless of class. Also drops "current/aktuelle" from
+   * measure_humidity's title: HUUM's API very likely echoes the commanded
+   * steamer duty cycle here rather than an independent sensor reading.
+   */
+  async _applyHumidityTileFix() {
+    if (this.getStoreValue('humidityTileFixApplied4') || typeof this.setCapabilityOptions !== 'function') return;
+    try {
+      // A one-off, value-independent options push — safe, unlike doing this
+      // together with a value clamp (see _applyHumidityLimit).
+      if (this.hasCapability('target_humidity')) {
+        await this.setCapabilityOptions('target_humidity', TARGET_HUMIDITY_OPTIONS);
+      }
+      if (this.hasCapability('measure_humidity')) {
+        await this.setCapabilityOptions('measure_humidity', MEASURE_HUMIDITY_OPTIONS);
+      }
+      await this.setStoreValue('humidityTileFixApplied4', true).catch(this.error);
+    } catch (err) {
+      this.error('Could not apply humidity tile fix:', err.message);
+    }
+  }
+
+  /**
+   * One-off nudge for existing devices: thermostat_mode didn't inherit
+   * onoff's quick-action row in the mobile device list/widget — it needs
+   * uiQuickAction explicitly, same as onoff.light already has.
+   */
+  async _applyQuickActionFix() {
+    if (this.getStoreValue('quickActionFixApplied') || typeof this.setCapabilityOptions !== 'function') return;
+    try {
+      if (this.hasCapability('thermostat_mode')) {
+        await this.setCapabilityOptions('thermostat_mode', THERMOSTAT_MODE_OPTIONS);
+      }
+      await this.setStoreValue('quickActionFixApplied', true).catch(this.error);
+    } catch (err) {
+      this.error('Could not apply quick-action fix:', err.message);
     }
   }
 
@@ -1433,11 +1669,13 @@ class HuumDevice extends Homey.Device {
       id: this.getData().id,
       name: this.getName(),
       available: this.getAvailable(),
-      heating: !!this.getCapabilityValue('onoff'),
-      measureTemperature: this.getCapabilityValue('measure_temperature.room') ?? null,
+      heating: this._isHeating(),
+      measureTemperature: this.getCapabilityValue('measure_temperature') ?? null,
       targetTemperature: this.getCapabilityValue('target_temperature') ?? null,
       measureHumidity: this.hasCapability('measure_humidity') ? (this.getCapabilityValue('measure_humidity') ?? null) : null,
-      targetHumidity: this.hasCapability('target_humidity') ? (this.getCapabilityValue('target_humidity') ?? null) : null,
+      // Sourced from the read-only mirror, not the settable target_humidity
+      // slider itself — see _applyHumidityLimit's doc comment.
+      targetHumidity: this._reliableTargetHumidityFraction(),
       timeRemaining: this.getCapabilityValue('huum_time_remaining') ?? null,
       doorOpen: this.hasCapability('alarm_contact') ? !!this.getCapabilityValue('alarm_contact') : null,
       measurePower: this.hasCapability('measure_power') ? (this.getCapabilityValue('measure_power') ?? null) : null,
@@ -1457,17 +1695,33 @@ class HuumDevice extends Homey.Device {
     }
   }
 
+  /**
+   * target_humidity as a 0-1 fraction, preferring the read-only
+   * huum_target_humidity mirror (always correct) over the settable slider
+   * itself (can briefly show a wrong value — see _applyHumidityLimit's doc
+   * comment). Falls back to the slider for a device not yet reconciled.
+   */
+  _reliableTargetHumidityFraction() {
+    if (!this.hasCapability('target_humidity')) return null;
+    if (this.hasCapability('huum_target_humidity')) {
+      const mirrored = this.getCapabilityValue('huum_target_humidity');
+      if (typeof mirrored === 'number') return mirrored / 100;
+    }
+    return this.getCapabilityValue('target_humidity') ?? null;
+  }
+
   /** Compact live state for the dashboard widget. */
   getWidgetState() {
     const s = this._lastStatus || {};
-    const th = this.hasCapability('target_humidity')
-      ? Math.round((this.getCapabilityValue('target_humidity') || 0) * 100)
+    const thFraction = this._reliableTargetHumidityFraction();
+    const th = this.hasCapability('target_humidity') && typeof thFraction === 'number'
+      ? Math.round(thFraction * 100)
       : null;
     return {
       name: this.getName(),
       available: this.getAvailable(),
-      heating: !!this.getCapabilityValue('onoff'),
-      measureTemperature: this.getCapabilityValue('measure_temperature.room') ?? null,
+      heating: this._isHeating(),
+      measureTemperature: this.getCapabilityValue('measure_temperature') ?? null,
       targetTemperature: this.getCapabilityValue('target_temperature') ?? null,
       hasSteamer: this.hasCapability('target_humidity'),
       targetHumidity: th,
@@ -1488,7 +1742,7 @@ class HuumDevice extends Homey.Device {
 
   /** Widget: turn on with the last settings, or off. */
   async widgetSetPower(on) {
-    await this.triggerCapabilityListener('onoff', !!on);
+    await this.triggerCapabilityListener('thermostat_mode', on ? 'heat' : 'off');
     return this.getWidgetState();
   }
 
@@ -1498,7 +1752,7 @@ class HuumDevice extends Homey.Device {
     if (this.hasCapability('huum_start_profile')) {
       await this.setCapabilityValue('huum_start_profile', profileId).catch(this.error);
     }
-    await this._setCapabilitySafe('onoff', true);
+    await this._setThermostatMode('heat');
     return this.getWidgetState();
   }
 

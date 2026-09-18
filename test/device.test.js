@@ -25,7 +25,7 @@ const APP_DIR = path.join(__dirname, '..');
 const enLocale = require(path.join(APP_DIR, 'locales', 'en.json'));
 
 const HuumDevice = require(path.join(APP_DIR, 'drivers', 'uku', 'device.js'));
-const { HuumAuthError, HuumSafetyError } = require(path.join(APP_DIR, 'lib', 'HuumApi.js'));
+const { HuumAuthError, HuumSafetyError, HuumApiError } = require(path.join(APP_DIR, 'lib', 'HuumApi.js'));
 
 function makeHomeyApi() {
   const timers = [];
@@ -80,10 +80,10 @@ function makeDevice({ capabilities }) {
 async function testPostActionRefreshFailureDoesNotRejectListener() {
   const device = makeDevice({
     capabilities: {
-      onoff: false,
+      thermostat_mode: 'off',
       target_temperature: 80,
       target_humidity: 0.3,
-      'measure_temperature.room': 40,
+      'measure_temperature': 40,
       measure_humidity: 20,
       alarm_contact: false,
       alarm_water: false,
@@ -103,19 +103,19 @@ async function testPostActionRefreshFailureDoesNotRejectListener() {
 
   // Should resolve (not throw), even though the post-action _syncStatus()
   // call fails — that's the exact bug that was fixed.
-  await device.triggerCapabilityListener('onoff', false);
+  await device.triggerCapabilityListener('thermostat_mode', 'off');
 
   assert.strictEqual(turnOffCalled, true, 'turnOff() must actually have been called');
   assert.ok(
     device.__errors.some((e) => e.includes('Post-action status refresh failed')),
     'the refresh failure must be logged, not thrown',
   );
-  console.log('OK: successful turnOff() + failed refresh does not reject the onoff listener');
+  console.log('OK: successful turnOff() + failed refresh does not reject the thermostat_mode listener');
 }
 
 async function testDoorOpenErrorStillRejectsWithTranslatedMessage() {
   const device = makeDevice({
-    capabilities: { onoff: false, target_temperature: 80, target_humidity: 0.3 },
+    capabilities: { thermostat_mode: 'off', target_temperature: 80, target_humidity: 0.3 },
   });
   device.api = {
     turnOn: async () => { throw new HuumSafetyError(); },
@@ -123,10 +123,23 @@ async function testDoorOpenErrorStillRejectsWithTranslatedMessage() {
   device._registerCapabilityListeners();
 
   await assert.rejects(
-    () => device.triggerCapabilityListener('onoff', true),
+    () => device.triggerCapabilityListener('thermostat_mode', 'heat'),
     (err) => err.message === enLocale.errors.door_open,
   );
   console.log('OK: door-open safety error still rejects the listener with the translated message');
+}
+
+async function testStartPassesCurrentTemperatureToHumidityCheck() {
+  // The real humidity ceiling is driven by target OR current cabin
+  // temperature, whichever is higher (see lib/HuumApi.js) — _start() must
+  // forward the last known measured temperature, not just the target.
+  const device = makeDevice({ capabilities: {} });
+  device._lastStatus = { temperature: 46 };
+  let captured = null;
+  device.api = { turnOn: async (args) => { captured = args; return {}; } };
+  await device._start(45, 60);
+  assert.strictEqual(captured.currentTemperature, 46);
+  console.log('OK: _start() forwards the current measured temperature to the humidity-limit check, not just the target');
 }
 
 async function testHumidityExceedsMaxIsTranslated() {
@@ -148,7 +161,7 @@ async function testAuthErrorMarksUnavailable() {
   device.api = { turnOff: async () => { throw new HuumAuthError(); } };
   device._registerCapabilityListeners();
 
-  await assert.rejects(() => device.triggerCapabilityListener('onoff', false));
+  await assert.rejects(() => device.triggerCapabilityListener('thermostat_mode', 'off'));
   assert.strictEqual(device.getAvailable(), false);
   assert.strictEqual(device.__unavailableReason, enLocale.errors.auth_failed);
   console.log('OK: an auth error on turnOff() also marks the device unavailable (not just on turnOn)');
@@ -158,7 +171,7 @@ async function testReconcileCapabilitiesAddsAndRemoves() {
   // Paired without a steamer (config=2, light only): target_humidity etc.
   // must not be present, then get added once config later reports a
   // steamer (e.g. after upgrading from an older version of this app).
-  const device = makeDevice({ capabilities: { onoff: false } });
+  const device = makeDevice({ capabilities: { thermostat_mode: 'off' } });
   await device._reconcileCapabilities({ config: 2 });
   assert.strictEqual(device.hasCapability('target_humidity'), false);
   assert.strictEqual(device.hasCapability('onoff.light'), true);
@@ -166,9 +179,154 @@ async function testReconcileCapabilitiesAddsAndRemoves() {
 
   await device._reconcileCapabilities({ config: 3 });
   assert.strictEqual(device.hasCapability('target_humidity'), true);
+  assert.strictEqual(device.hasCapability('huum_target_humidity'), true, 'the read-only humidity mirror follows target_humidity');
   assert.strictEqual(device.hasCapability('measure_humidity'), true);
   assert.strictEqual(device.hasCapability('alarm_water'), true);
+  // target_humidity itself was just added fresh (value null) — nothing to
+  // seed from yet; the one-time seed only fires once the slider actually
+  // holds a number (see the dedicated seeding test below).
+  assert.strictEqual(device.getCapabilityValue('huum_target_humidity'), null);
   console.log('OK: _reconcileCapabilities adds steamer capabilities once config reports a steamer');
+}
+
+async function testHumidityMirrorIsSeededOnceFromTheSlider() {
+  // An existing device upgrading straight to this version already has a
+  // real target_humidity value, but huum_target_humidity is brand new (null)
+  // — reconcile should seed it once, not leave it null until the next
+  // profile pick / manual change / heating status.
+  const device = makeDevice({ capabilities: { target_humidity: 0.35 } });
+  await device._reconcileCapabilities({ config: 3 });
+  assert.strictEqual(device.getCapabilityValue('huum_target_humidity'), 35, 'seeded once from the slider\'s current value');
+
+  // Must not clobber a value that's already been set for real afterwards.
+  await device._setCapabilitySafe('huum_target_humidity', 55);
+  await device._reconcileCapabilities({ config: 3 });
+  assert.strictEqual(device.getCapabilityValue('huum_target_humidity'), 55, 'does not re-seed once it already holds a number');
+  console.log('OK: the read-only humidity mirror is seeded once from the slider for existing devices');
+}
+
+async function testThermostatMigrationInPlace() {
+  // A real already-paired device, as it existed before this version: class
+  // 'heater', onoff, and the dotted measure_temperature.room (the previous
+  // fix for Homey's composite thermostat dial ignoring onoff). Must migrate
+  // in place — no remove+re-pair, no data loss — to class 'thermostat' with
+  // thermostat_mode replacing onoff, and the plain measure_temperature back
+  // (now safe to pair with target_temperature since thermostat_mode, not a
+  // target/measured comparison, tells Homey the real on/off state).
+  const device = makeDevice({
+    capabilities: { onoff: false, target_temperature: 80, 'measure_temperature.room': 42 },
+  });
+  assert.strictEqual(device.getClass(), 'heater', 'test setup: starts as a pre-migration device');
+
+  await device._reconcileCapabilities({ config: 3 });
+
+  assert.strictEqual(device.getClass(), 'thermostat');
+  assert.strictEqual(device.hasCapability('thermostat_mode'), true);
+  assert.strictEqual(device.hasCapability('onoff'), false);
+  assert.strictEqual(device.hasCapability('measure_temperature.room'), false);
+  assert.strictEqual(device.hasCapability('measure_temperature'), true);
+  assert.strictEqual(device.getCapabilityValue('measure_temperature'), 42, 'the room-temperature reading survives the rename');
+  console.log('OK: an existing device migrates class/onoff/measure_temperature.room in place, no data loss');
+}
+
+async function testHumidityTileFixAppliesOnce() {
+  // target_humidity's uiComponent was "thermostat" — fine as its own tile
+  // under class:heater, but silently hidden once the device became a real
+  // class:thermostat. measure_humidity's title drops "current/aktuelle".
+  // Existing devices need both pushed via setCapabilityOptions(); a
+  // manifest change alone doesn't reach an already-paired device. This is
+  // a one-off, value-independent push (safe — see _applyHumidityLimit for
+  // why combining an options push with a value change is not).
+  const device = makeDevice({ capabilities: { target_humidity: 0.5, measure_humidity: 20 } });
+  await device._applyHumidityTileFix();
+  assert.strictEqual(device.getCapabilityOptions('target_humidity').uiComponent, 'slider');
+  assert.strictEqual(device.getCapabilityOptions('target_humidity').step, 0.05);
+  assert.deepStrictEqual(device.getCapabilityOptions('measure_humidity').title, { en: 'Humidity', de: 'Feuchtigkeit' });
+  assert.strictEqual(device.getStoreValue('humidityTileFixApplied4'), true);
+
+  // Second call is a no-op (guarded by the store flag) — must not re-push.
+  device.__capabilityOptions = {};
+  await device._applyHumidityTileFix();
+  assert.strictEqual(device.getCapabilityOptions('target_humidity'), undefined, 'guarded: does not re-apply once the flag is set');
+  console.log('OK: target_humidity/measure_humidity tile options are fixed once for existing devices');
+}
+
+async function testQuickActionFixAppliesOnce() {
+  // thermostat_mode replaced onoff, but didn't inherit onoff's quick-action
+  // row in the mobile device list/widget (unlike onoff.light, which already
+  // declares uiQuickAction) — pushed once via setCapabilityOptions.
+  const device = makeDevice({ capabilities: { thermostat_mode: 'off' } });
+  await device._applyQuickActionFix();
+  assert.strictEqual(device.getCapabilityOptions('thermostat_mode').uiQuickAction, true);
+  assert.strictEqual(device.getStoreValue('quickActionFixApplied'), true);
+
+  device.__capabilityOptions = {};
+  await device._applyQuickActionFix();
+  assert.strictEqual(device.getCapabilityOptions('thermostat_mode'), undefined, 'guarded: does not re-apply once the flag is set');
+  console.log('OK: thermostat_mode gets uiQuickAction fixed once for existing devices');
+}
+
+async function testHumidityLimitTracksTemperature() {
+  // Value-only, no dynamic capabilityOptions.max — see the doc comment on
+  // _applyHumidityLimit for why (a confirmed target_humidity-specific
+  // Homey platform bug). Tests the real logic directly
+  // (_applyHumidityLimitNow); _applyHumidityLimit itself only schedules
+  // this via setTimeout, covered separately. Only ever clamps DOWN, never
+  // raises a value back up on its own.
+  const device = makeDevice({
+    capabilities: {
+      target_temperature: 60, target_humidity: 0.9, huum_target_humidity: 90,
+    },
+  });
+
+  await device._applyHumidityLimitNow(60);
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'clamped down to the real max for 60°C (40%)');
+  assert.strictEqual(device.getCapabilityValue('huum_target_humidity'), 40, 'read-only mirror clamped alongside the slider');
+
+  // Lowering the temperature raises the max again, but the value — already
+  // valid at 0.4 — is left exactly as is, never raised back up on its own.
+  await device._applyHumidityLimitNow(45);
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'never raised on its own, even though the ceiling went up');
+
+  // A value that's already valid for the new temperature must never be
+  // touched — this is the exact bug reported live (a valid 55% reset to 0%).
+  await device._setCapabilitySafe('target_humidity', 0.55);
+  await device._applyHumidityLimitNow(51); // max at 51°C is 45% -> 0.55 is now too high
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.45, 'clamped down to the real max, exactly once');
+  assert.strictEqual(device.getCapabilityValue('huum_target_humidity'), 45, 'mirror follows the same clamp');
+  await device._applyHumidityLimitNow(50); // max at 50°C is 55% -- now valid again, must be left alone
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.45, 'stays exactly where it was clamped to; never bumped back up');
+
+  // Current (measured) temperature, if higher than target, is the real
+  // limiting factor once heating has overshot the setpoint.
+  await device._setCapabilitySafe('target_humidity', 0.9);
+  await device._applyHumidityLimitNow(45, { temperature: 50 });
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.55, 'current temp of 50°C (max 55%) wins over the lower 45° target (max 90%)');
+
+  console.log('OK: target_humidity is clamped down (value only, no capabilityOptions changes) to the real max for target/current temperature');
+}
+
+async function testHumidityLimitIsDeferredFromTemperatureListener() {
+  // Reported live: temperature changes stopped clamping humidity down at
+  // all once _applyHumidityLimit was called synchronously (awaited inline)
+  // from inside the target_temperature listener — the community-forum
+  // reversion behavior applies to *any* synchronous write to a different
+  // capability from inside a listener, not just when combined with an
+  // options change. _applyHumidityLimit defers to _applyHumidityLimitNow
+  // via setTimeout(...,0) so every caller gets that for free.
+  const device = makeDevice({
+    capabilities: { thermostat_mode: 'off', target_temperature: 45, target_humidity: 0.8 },
+  });
+  device._registerCapabilityListeners();
+
+  await device.triggerCapabilityListener('target_temperature', 60);
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.8, 'not touched synchronously inside the listener');
+  assert.strictEqual(device.homey.__timers.length, 1, 'the humidity-limit check is scheduled via setTimeout, not awaited inline');
+
+  await device.homey.__timers[0].fn();
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'clamped to 60°C\'s real max once the deferred check runs');
+
+  console.log('OK: the temperature listener defers the humidity-limit check via setTimeout instead of applying it synchronously inside itself');
 }
 
 async function testAdaptivePollIntervalPicksActiveVsIdle() {
@@ -189,10 +347,10 @@ async function testAdaptivePollIntervalPicksActiveVsIdle() {
 
 async function testSessionTrackingCountsACompleteSession() {
   const device = makeDevice({
-    capabilities: { huum_session_count: 0, onoff: false },
+    capabilities: { huum_session_count: 0, thermostat_mode: 'off' },
   });
 
-  // Session starts: onoff false -> true.
+  // Session starts: thermostat_mode off -> heat.
   device._lastStatus = { isHeating: false };
   await device._trackSessionStats({
     isHeating: true, targetTemperature: 82, targetHumidity: 35,
@@ -236,7 +394,7 @@ async function testSessionTrackingIgnoresEndWithNoKnownStart() {
 
 async function testSaveAndStartWithProfile() {
   const device = makeDevice({
-    capabilities: { target_temperature: 88, target_humidity: 0.2, onoff: true },
+    capabilities: { target_temperature: 88, target_humidity: 0.2, thermostat_mode: 'heat' },
   });
 
   await device.saveProfile('profile1');
@@ -269,7 +427,7 @@ async function testStartWithUnconfiguredProfileThrows() {
 async function testWaterSensorAbsentHidesAlarm() {
   // Owner declared "no water sensor" — alarm_water must be removed even
   // though the sauna has a steamer (config=3), and stay gone.
-  const device = makeDevice({ capabilities: { onoff: false, alarm_water: false } });
+  const device = makeDevice({ capabilities: { thermostat_mode: 'off', alarm_water: false } });
   device.__settings = { waterSensorMode: 'absent' };
 
   await device._reconcileCapabilities({ config: 3 });
@@ -278,8 +436,22 @@ async function testWaterSensorAbsentHidesAlarm() {
   console.log('OK: declaring "no water sensor" hides alarm_water even with a steamer');
 }
 
+async function testHumiditySensorAbsentHidesMeasureHumidity() {
+  // Owner declared "no humidity sensor" (many UKU steamers don't have one —
+  // HUUM's API then just echoes the target back as "humidity", which is
+  // misleading labelled as a live measurement) — measure_humidity must be
+  // removed even with a steamer, target_humidity (settable, open-loop) stays.
+  const device = makeDevice({ capabilities: { thermostat_mode: 'off', measure_humidity: 0 } });
+  device.__settings = { humiditySensorMode: 'absent' };
+
+  await device._reconcileCapabilities({ config: 3 });
+  assert.strictEqual(device.hasCapability('measure_humidity'), false, 'no humidity sensor -> measure_humidity removed');
+  assert.strictEqual(device.hasCapability('target_humidity'), true, 'humidity control still added (steamer present)');
+  console.log('OK: declaring "no humidity sensor" hides measure_humidity even with a steamer');
+}
+
 async function testDoorSensorAbsentOverridesSafetyCheck() {
-  const device = makeDevice({ capabilities: { onoff: false, target_temperature: 80 } });
+  const device = makeDevice({ capabilities: { thermostat_mode: 'off', target_temperature: 80 } });
   device.__settings = { doorSensorMode: 'absent' };
 
   let captured = null;
@@ -293,7 +465,7 @@ async function testDoorSensorAbsentOverridesSafetyCheck() {
 async function testRemoteSafetyBlocksStartAndWarns() {
   const device = makeDevice({
     capabilities: {
-      onoff: false, target_temperature: 80, alarm_contact: false, alarm_generic: false,
+      thermostat_mode: 'off', target_temperature: 80, alarm_contact: false, alarm_generic: false,
     },
   });
   device.api = { turnOn: async () => ({}) };
@@ -372,7 +544,7 @@ async function testGetConfigExposesRemoteBlocked() {
 }
 
 async function testCurrentTemperatureChangedFiresOnEveryChange() {
-  const device = makeDevice({ capabilities: { 'measure_temperature.room': 40 } });
+  const device = makeDevice({ capabilities: { 'measure_temperature': 40 } });
 
   // First observation just primes the edge detector — no prior value to
   // compare against, so it must not fire.
@@ -383,7 +555,7 @@ async function testCurrentTemperatureChangedFiresOnEveryChange() {
   const fired = device.homey.__triggeredCards.pop();
   assert.strictEqual(fired.id, 'current_temperature_changed');
   assert.deepStrictEqual(fired.tokens, { temperature: 41 });
-  assert.strictEqual(device.getCapabilityValue('measure_temperature.room'), 41);
+  assert.strictEqual(device.getCapabilityValue('measure_temperature'), 41);
 
   await device._syncCurrentTemperature({ temperature: 41 }); // no change
   assert.strictEqual(device.homey.__triggeredCards.length, 0);
@@ -446,7 +618,7 @@ async function testTimeRemainingReachesTriggerFiresOnDownwardCrossing() {
 
 async function testDutyCycleLowersTheEstimateAtTemp() {
   const device = makeDevice({
-    capabilities: { 'measure_temperature.room': 88, target_temperature: 90 },
+    capabilities: { 'measure_temperature': 88, target_temperature: 90 },
   });
   device.__store.heaterPowerKw = 6;
   device.__store.heaterDutyCycle = 50;
@@ -454,7 +626,7 @@ async function testDutyCycleLowersTheEstimateAtTemp() {
   // measure (88) >= target (90) - 5 -> "at temperature" -> duty applies
   assert.strictEqual(device._currentPowerW(), 3000, 'at temp: 6 kW * 50%');
 
-  device.__capabilities.set('measure_temperature.room', 40); // heating up
+  device.__capabilities.set('measure_temperature', 40); // heating up
   assert.strictEqual(device._currentPowerW(), 6000, 'heating up: full power');
   console.log('OK: the kW estimate is duty-cycled once the sauna is at temperature');
 }
@@ -484,8 +656,44 @@ async function testProfileDefaultsSeededOverNull() {
   console.log('OK: the 3 default profiles are seeded even when getStoreValue() returns null');
 }
 
+async function testSetConfigClampsProfileHumidityAboveMax() {
+  // Regression: the settings page let a profile be saved with a humidity
+  // above what the steamer accepts at that temperature (e.g. 50°C/80%,
+  // real UKU max is 55%) — it would then fail every single time it's used
+  // to start the sauna. setConfig() now clamps it down instead of rejecting
+  // the whole save, so the owner sees the corrected value immediately (the
+  // settings page re-renders from the returned config right after save).
+  const device = makeDevice({ capabilities: {} });
+
+  let cfg = await device.setConfig({ profiles: [{ name: 'Feucht', temperature: 50, humidity: 80 }] });
+  assert.strictEqual(device.getStoreValue('profile1Humidity'), 55, 'clamped to the max for 50°C, not rejected');
+  assert.strictEqual(cfg.profiles[0].humidity, 55, 'the clamped value comes back in the response too');
+  assert.deepStrictEqual(
+    cfg.humidityClamped,
+    [{
+      index: 0, name: 'Feucht', temperature: 50, requested: 80, maxHumidity: 55,
+    }],
+    'the response reports what was clamped, for the settings page to explain it',
+  );
+
+  // A valid combo (55% is exactly the max at 50°C) is left untouched, and
+  // reports no clamping.
+  cfg = await device.setConfig({ profiles: [{ name: 'Feucht', temperature: 50, humidity: 55 }] });
+  assert.strictEqual(cfg.profiles[0].humidity, 55);
+  assert.strictEqual(cfg.humidityClamped, undefined);
+
+  // Changing only the temperature of an already-saved profile must also
+  // re-check its existing (unchanged) humidity: raising the temperature to
+  // 60°C drops the allowed max to 40%, clamping the untouched 55% down.
+  cfg = await device.setConfig({ profiles: [{ temperature: 60 }] });
+  assert.strictEqual(cfg.profiles[0].humidity, 40);
+  assert.strictEqual(cfg.humidityClamped[0].maxHumidity, 40);
+
+  console.log('OK: setConfig() clamps a profile\'s humidity down to the steamer\'s max for its temperature, instead of rejecting the save');
+}
+
 async function testSessionEnergyAndCost() {
-  const device = makeDevice({ capabilities: { huum_session_count: 0, onoff: false } });
+  const device = makeDevice({ capabilities: { huum_session_count: 0, thermostat_mode: 'off' } });
   device.__store.electricityPrice = 0.30;
   device.__store.heaterPowerKw = 6; // no meter -> estimate: 6 kW
 
@@ -519,15 +727,35 @@ async function testWaterAlarmIgnoresZeroSteamerError() {
   console.log('OK: water alarm only fires on a positive steamerError code, not 0');
 }
 
+async function testHuumPowerMirrorsThermostatMode() {
+  // huum_power exists purely for Homey's mobile Quick Action list, which
+  // only offers boolean toggle/button capabilities, not thermostat_mode's
+  // heat/off dropdown. Must stay in sync whenever thermostat_mode changes,
+  // and toggling it must drive the sauna exactly like thermostat_mode does.
+  const device = makeDevice({
+    capabilities: { thermostat_mode: 'off', huum_power: false, target_temperature: 80 },
+  });
+  device.api = { turnOn: async () => ({}), getStatus: async () => { throw new Error('no refresh in test'); } };
+  device._registerCapabilityListeners();
+
+  await device.triggerCapabilityListener('huum_power', true);
+  assert.strictEqual(device.getCapabilityValue('thermostat_mode'), 'heat', 'toggling huum_power drives thermostat_mode too');
+
+  await device._setThermostatMode('off');
+  assert.strictEqual(device.getCapabilityValue('huum_power'), false, '_setThermostatMode keeps huum_power in sync');
+
+  console.log('OK: huum_power mirrors thermostat_mode both ways (Quick Action toggle <-> real state)');
+}
+
 async function testWaterCheckReminderFiresOnStart() {
   const device = makeDevice({
-    capabilities: { onoff: false, target_temperature: 80, target_humidity: 0.3 },
+    capabilities: { thermostat_mode: 'off', target_temperature: 80, target_humidity: 0.3 },
   });
   device.__settings = { waterCheckReminder: true };
   device.api = { turnOn: async () => ({}), getStatus: async () => { throw new Error('no refresh in test'); } };
   device._registerCapabilityListeners();
 
-  await device.triggerCapabilityListener('onoff', true);
+  await device.triggerCapabilityListener('thermostat_mode', 'heat');
 
   const note = device.homey.__notifications.find((n) => /check the steamer water/i.test(n.excerpt));
   assert.ok(note, 'turning the sauna on posts the water-check reminder notification');
@@ -536,7 +764,7 @@ async function testWaterCheckReminderFiresOnStart() {
 
 async function testStartProfilePickerStartsWithThatProfile() {
   const device = makeDevice({
-    capabilities: { onoff: false, huum_start_profile: 'profile2', target_humidity: 0 },
+    capabilities: { thermostat_mode: 'off', huum_start_profile: 'profile2', target_humidity: 0 },
   });
   device.__store.profile2Temperature = 60;
   device.__store.profile2Humidity = 45;
@@ -545,15 +773,15 @@ async function testStartProfilePickerStartsWithThatProfile() {
   device.api = { turnOn: async (a) => { captured = a; return {}; }, getStatus: async () => { throw new Error('no refresh'); } };
   device._registerCapabilityListeners();
 
-  await device.triggerCapabilityListener('onoff', true);
-  assert.deepStrictEqual(captured, { temperature: 60, humidity: 45 }, 'onoff uses the picked start profile');
+  await device.triggerCapabilityListener('thermostat_mode', 'heat');
+  assert.deepStrictEqual(captured, { temperature: 60, humidity: 45 }, 'thermostat_mode uses the picked start profile');
 
   // "manual" (or an unconfigured profile) falls back to the current setpoint.
   device.__capabilities.set('huum_start_profile', 'manual');
   device.__capabilities.set('target_temperature', 95);
-  device.__capabilities.set('onoff', false);
+  device.__capabilities.set('thermostat_mode', 'off');
   captured = null;
-  await device.triggerCapabilityListener('onoff', true);
+  await device.triggerCapabilityListener('thermostat_mode', 'heat');
   assert.strictEqual(captured.temperature, 95, 'manual -> current target temperature');
   console.log('OK: the device start-profile picker decides what switching on starts with');
 }
@@ -561,7 +789,7 @@ async function testStartProfilePickerStartsWithThatProfile() {
 async function testHumidityCapabilityScales() {
   // Homey quirk: measure_humidity is a plain 0-100 reading, but
   // target_humidity is a 0-1 fraction rendered as a percentage.
-  const device = makeDevice({ capabilities: { target_humidity: 0, measure_humidity: 0, onoff: true } });
+  const device = makeDevice({ capabilities: { target_humidity: 0, measure_humidity: 0, thermostat_mode: 'heat' } });
   await device._applyStatus({
     isHeating: true, temperature: 40, targetTemperature: 80,
     humidity: 38, targetHumidity: 45, doorClosed: true,
@@ -575,7 +803,7 @@ async function testHumidityCapabilityScales() {
 
 async function testTargetsNotOverwrittenWhileOff() {
   const device = makeDevice({
-    capabilities: { onoff: false, target_temperature: 55, target_humidity: 0.4, measure_humidity: 0 },
+    capabilities: { thermostat_mode: 'off', target_temperature: 55, target_humidity: 0.4, measure_humidity: 0 },
   });
   // A poll while the sauna is off must not clobber the owner's intended
   // next-start values with whatever HUUM still reports.
@@ -586,7 +814,7 @@ async function testTargetsNotOverwrittenWhileOff() {
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'kept while off');
 
   // While heating, HUUM's values do win.
-  device.__capabilities.set('onoff', true);
+  device.__capabilities.set('thermostat_mode', 'heat');
   await device._applyStatus({
     isHeating: true, temperature: 60, targetTemperature: 90, targetHumidity: 10, doorClosed: true,
   });
@@ -597,7 +825,7 @@ async function testTargetsNotOverwrittenWhileOff() {
 async function testScheduledStartFires() {
   const device = makeDevice({
     capabilities: {
-      onoff: false, target_temperature: 80, huum_start_profile: 'manual', huum_booking_status: null,
+      thermostat_mode: 'off', target_temperature: 80, huum_start_profile: 'manual', huum_booking_status: null,
     },
   });
   let started = null;
@@ -629,7 +857,7 @@ async function testScheduledStartFires() {
 
   assert.deepStrictEqual(started, { temperature: 70, humidity: 20 }, 'scheduled start used the booked values');
   assert.strictEqual(device.getBooking(), null, 'booking cleared once it fired');
-  assert.strictEqual(device.getCapabilityValue('onoff'), true);
+  assert.strictEqual(device.getCapabilityValue('thermostat_mode'), 'heat');
   assert.strictEqual(
     device.getCapabilityValue('huum_booking_status'),
     enLocale.labels.not_scheduled,
@@ -687,7 +915,7 @@ async function testScheduleStartFromFlowParsesInTheHomeyTimezone() {
 async function testBookingNotificationSubstitutesTheDeviceName() {
   // Homey.__() substitutes __varName__, not {{varName}} — this is exactly
   // the bug the user spotted live (a literal "{{name}}" in the Timeline).
-  const device = makeDevice({ capabilities: { onoff: false, target_temperature: 80 } });
+  const device = makeDevice({ capabilities: { thermostat_mode: 'off', target_temperature: 80 } });
   device.api = { turnOn: async () => ({}), getStatus: async () => { throw new Error('x'); } };
   device.__store.booking = { at: Date.now() - 1000, profile: null, temperature: 70 };
   await device._fireBooking();
@@ -705,7 +933,7 @@ async function testTimelineNotificationsToggleDisablesAll() {
   // (notifyOnWaterAlarm / waterCheckReminder) is separately turned on.
   const device = makeDevice({
     capabilities: {
-      onoff: false, target_temperature: 80, target_humidity: 0.3, alarm_water: false, alarm_generic: false,
+      thermostat_mode: 'off', target_temperature: 80, target_humidity: 0.3, alarm_water: false, alarm_generic: false,
     },
   });
   device.__store.timelineNotifications = false;
@@ -749,7 +977,7 @@ async function testClearBookingResetsTheTile() {
 }
 
 async function testStaleBookingIsDroppedNotFired() {
-  const device = makeDevice({ capabilities: { onoff: false, target_temperature: 80 } });
+  const device = makeDevice({ capabilities: { thermostat_mode: 'off', target_temperature: 80 } });
   let called = false;
   device.api = { turnOn: async () => { called = true; return {}; }, getStatus: async () => { throw new Error('x'); } };
   // Simulate a booking whose time passed 45 min ago while the app was down.
@@ -769,7 +997,7 @@ async function testStaleBookingIsDroppedNotFired() {
 
 async function testFailedScheduledStartIsRecordedWithReason() {
   // Remote-safety blocked: _start() rejects before ever calling the API.
-  const remoteBlockedDevice = makeDevice({ capabilities: { onoff: false, target_temperature: 80 } });
+  const remoteBlockedDevice = makeDevice({ capabilities: { thermostat_mode: 'off', target_temperature: 80 } });
   remoteBlockedDevice.api = { turnOn: async () => ({}), getStatus: async () => { throw new Error('offline'); } };
   remoteBlockedDevice._lastStatus = { remoteSafetyState: 'notSafe' };
   remoteBlockedDevice.__store.booking = { at: Date.now() - 1000, profile: null, temperature: 70 };
@@ -779,7 +1007,7 @@ async function testFailedScheduledStartIsRecordedWithReason() {
   assert.strictEqual(rec.reason, 'remote_disabled', 'remote-safety block is recorded with its own reason');
 
   // Door open: the HUUM API itself rejects the start.
-  const doorOpenDevice = makeDevice({ capabilities: { onoff: false, target_temperature: 80 } });
+  const doorOpenDevice = makeDevice({ capabilities: { thermostat_mode: 'off', target_temperature: 80 } });
   doorOpenDevice.api = {
     turnOn: async () => { throw new HuumSafetyError(); },
     getStatus: async () => { throw new Error('offline'); },
@@ -791,7 +1019,7 @@ async function testFailedScheduledStartIsRecordedWithReason() {
   assert.strictEqual(rec.reason, 'door_open', 'a door-open rejection is recorded with its own reason');
 
   // Anything else falls back to a generic reason, still recorded.
-  const otherDevice = makeDevice({ capabilities: { onoff: false, target_temperature: 80 } });
+  const otherDevice = makeDevice({ capabilities: { thermostat_mode: 'off', target_temperature: 80 } });
   otherDevice.api = {
     turnOn: async () => { throw new Error('network blip'); },
     getStatus: async () => { throw new Error('offline'); },
@@ -803,11 +1031,29 @@ async function testFailedScheduledStartIsRecordedWithReason() {
   assert.strictEqual(rec.reason, 'other', 'an unclassified failure still lands in the history');
   assert.strictEqual(rec.message, 'network blip');
 
-  console.log('OK: a scheduled start that fails on the day is recorded in the history with its reason (remote/door/other)');
+  // Humidity-exceeds-max: _start() re-wraps the HuumApi error with a
+  // translated message and must preserve err.code, or this falls through to
+  // the generic 'other' bucket instead of its own reason.
+  const humidityDevice = makeDevice({ capabilities: { thermostat_mode: 'off', target_temperature: 50 } });
+  humidityDevice.api = {
+    turnOn: async () => {
+      throw new HuumApiError('too humid', undefined, {
+        code: 'humidity_exceeds_max', data: { humidity: 80, maxHumidity: 55, temperature: 50 },
+      });
+    },
+    getStatus: async () => { throw new Error('offline'); },
+  };
+  humidityDevice.__store.booking = { at: Date.now() - 1000, profile: null, temperature: 50, humidity: 80 };
+  await humidityDevice._fireBooking();
+  rec = humidityDevice.getStoreValue('sessionHistory')[0];
+  assert.strictEqual(rec.failed, true);
+  assert.strictEqual(rec.reason, 'humidity_exceeds_max', 'a humidity-limit rejection keeps its own reason, not "other"');
+
+  console.log('OK: a scheduled start that fails on the day is recorded in the history with its reason (remote/door/humidity/other)');
 }
 
 async function testAutoOffSurvivesRestartAndClearsWhenOff() {
-  const device = makeDevice({ capabilities: { onoff: true } });
+  const device = makeDevice({ capabilities: { thermostat_mode: 'heat' } });
   device.api = { turnOff: async () => ({}), getStatus: async () => { throw new Error('x'); } };
   device._registerCapabilityListeners();
 
@@ -828,7 +1074,7 @@ async function testAutoOffSurvivesRestartAndClearsWhenOff() {
 }
 
 async function testSessionEnergyFromMeterDelta() {
-  const device = makeDevice({ capabilities: { huum_session_count: 0, onoff: false } });
+  const device = makeDevice({ capabilities: { huum_session_count: 0, thermostat_mode: 'off' } });
   device.__store.electricityPrice = 0.30;
   device.__store.powerSource = 'meter';
   device.__store.powerMeterId = 'm1';
@@ -855,35 +1101,76 @@ async function testSessionEnergyFromMeterDelta() {
 
 async function testStartProfilePickerFillsTheSliders() {
   const device = makeDevice({
-    capabilities: { onoff: false, huum_start_profile: 'manual', target_temperature: 80, target_humidity: 0.2 },
+    capabilities: {
+      thermostat_mode: 'off', huum_start_profile: 'manual', target_temperature: 80, target_humidity: 0.2, huum_target_humidity: 20,
+    },
   });
   device.__store.profile2Temperature = 50;
   device.__store.profile2Humidity = 55;
   device._registerCapabilityListeners();
 
   await device.triggerCapabilityListener('huum_start_profile', 'profile2');
-  assert.strictEqual(device.getCapabilityValue('target_temperature'), 50, 'slider jumps to the profile temp');
-  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.55, 'slider jumps to the profile humidity');
+  // Applying the temperature/humidity is deferred via setTimeout(...,0) —
+  // same reason as the temperature listener's own humidity clamp: Homey
+  // reverts a *different* capability's value change made synchronously
+  // from inside a listener, and target_temperature/target_humidity are
+  // both different capabilities from huum_start_profile itself.
+  assert.strictEqual(device.getCapabilityValue('target_temperature'), 80, 'not applied synchronously inside the listener');
+  assert.strictEqual(device.homey.__timers.length, 1, 'scheduled via setTimeout, not awaited inline');
+  await device.homey.__timers[0].fn();
+  assert.strictEqual(device.getCapabilityValue('target_temperature'), 50, 'slider jumps to the profile temp once deferred');
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.55, 'slider jumps to the profile humidity once deferred');
+  // The read-only mirror is filled from the same trusted profile config,
+  // independent of whatever the (possibly buggy) slider itself ends up
+  // showing — see _applyHumidityLimit's doc comment.
+  assert.strictEqual(device.getCapabilityValue('huum_target_humidity'), 55, 'read-only mirror also reflects the profile humidity');
   assert.strictEqual(device.getCapabilityValue('huum_start_profile'), 'profile2');
 
   // A manual slider nudge afterwards drops back to "manual".
   await device.triggerCapabilityListener('target_temperature', 62);
   assert.strictEqual(device.getCapabilityValue('huum_start_profile'), 'manual', 'manual tweak clears the profile');
-  console.log('OK: picking a profile fills the target sliders; a manual tweak clears the pick');
+  console.log('OK: picking a profile fills the target sliders (deferred); a manual tweak clears the pick');
+}
+
+async function testReliableTargetHumidityFractionPrefersTheMirror() {
+  // Backs getPublicState()/getWidgetState()'s targetHumidity field — must
+  // never surface the settable slider's value directly (it can be wrong,
+  // see _applyHumidityLimit's doc comment) when a trustworthy mirror exists.
+  const noSteamer = makeDevice({ capabilities: { thermostat_mode: 'off' } });
+  assert.strictEqual(noSteamer._reliableTargetHumidityFraction(), null, 'no steamer -> no humidity at all');
+
+  const mirrored = makeDevice({ capabilities: { target_humidity: 1, huum_target_humidity: 55 } });
+  assert.strictEqual(mirrored._reliableTargetHumidityFraction(), 0.55, 'prefers the reliable mirror over the (here: wrong) slider value');
+
+  const notSeededYet = makeDevice({ capabilities: { target_humidity: 0.3, huum_target_humidity: null } });
+  assert.strictEqual(notSeededYet._reliableTargetHumidityFraction(), 0.3, 'falls back to the slider while the mirror is still null');
+
+  const preMigration = makeDevice({ capabilities: { target_humidity: 0.3 } });
+  assert.strictEqual(preMigration._reliableTargetHumidityFraction(), 0.3, 'falls back to the slider on a device not yet reconciled with the mirror capability');
+
+  console.log('OK: _reliableTargetHumidityFraction() prefers huum_target_humidity, falling back to the slider only when the mirror is unavailable');
 }
 
 (async () => {
   await testPostActionRefreshFailureDoesNotRejectListener();
   await testDoorOpenErrorStillRejectsWithTranslatedMessage();
+  await testStartPassesCurrentTemperatureToHumidityCheck();
   await testHumidityExceedsMaxIsTranslated();
   await testAuthErrorMarksUnavailable();
   await testReconcileCapabilitiesAddsAndRemoves();
+  await testHumidityMirrorIsSeededOnceFromTheSlider();
+  await testThermostatMigrationInPlace();
+  await testHumidityTileFixAppliesOnce();
+  await testQuickActionFixAppliesOnce();
+  await testHumidityLimitTracksTemperature();
+  await testHumidityLimitIsDeferredFromTemperatureListener();
   await testAdaptivePollIntervalPicksActiveVsIdle();
   await testSessionTrackingCountsACompleteSession();
   await testSessionTrackingIgnoresEndWithNoKnownStart();
   await testSaveAndStartWithProfile();
   await testStartWithUnconfiguredProfileThrows();
   await testWaterSensorAbsentHidesAlarm();
+  await testHumiditySensorAbsentHidesMeasureHumidity();
   await testDoorSensorAbsentOverridesSafetyCheck();
   await testRemoteSafetyBlocksStartAndWarns();
   await testRemoteStateTriggersOnEdge();
@@ -895,12 +1182,15 @@ async function testStartProfilePickerFillsTheSliders() {
   await testDutyCycleLowersTheEstimateAtTemp();
   await testSetMeasuredPowerFeedsCapability();
   await testProfileDefaultsSeededOverNull();
+  await testSetConfigClampsProfileHumidityAboveMax();
   await testSessionEnergyAndCost();
   await testSessionEnergyFromMeterDelta();
   await testWaterAlarmIgnoresZeroSteamerError();
+  await testHuumPowerMirrorsThermostatMode();
   await testWaterCheckReminderFiresOnStart();
   await testTargetsNotOverwrittenWhileOff();
   await testStartProfilePickerFillsTheSliders();
+  await testReliableTargetHumidityFractionPrefersTheMirror();
   await testScheduledStartFires();
   await testScheduleStartFromFlowParsesInTheHomeyTimezone();
   await testBookingNotificationSubstitutesTheDeviceName();
