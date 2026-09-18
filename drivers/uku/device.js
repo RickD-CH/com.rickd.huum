@@ -214,6 +214,9 @@ class HuumDevice extends Homey.Device {
       stats: this._statsModel(),
       hasSteamer: this.hasCapability('target_humidity'),
       hasMeter: this._usingPowerMeter(),
+      // TEMPORARY — see _applyHumidityLimit. Remove once the live 0%-instead-
+      // of-real-max bug is confirmed fixed.
+      humidityDebugLog: this.getStoreValue('humidityDebugLog') || [],
     };
   }
 
@@ -1504,6 +1507,7 @@ class HuumDevice extends Homey.Device {
     const current = status && typeof status.temperature === 'number' ? status.temperature : null;
     const limitingTemp = current != null ? Math.max(target, current) : target;
     const maxFraction = Math.round(getMaxHumidityForTemperature(limitingTemp)) / 100;
+    const beforeValue = this.getCapabilityValue('target_humidity');
 
     // Clamp the VALUE first. setCapabilityOptions() is documented by Homey
     // itself as "expensive" and (per the same re-init behaviour noted on
@@ -1512,21 +1516,44 @@ class HuumDevice extends Homey.Device {
     // why a deliberately-set, still-too-high value was seen reset to 0%
     // instead of clamped to the real max.
     const currentHumidity = this.getCapabilityValue('target_humidity');
+    let clamped = false;
     if (typeof currentHumidity === 'number' && currentHumidity > maxFraction) {
       await this._setCapabilitySafe('target_humidity', maxFraction);
+      clamped = true;
     }
 
     // Same reinit-loop guard as _applyDeviceLimits — only push setCapabilityOptions
     // when the max actually changed.
+    let optionsChanged = false;
     if (this.getStoreValue('appliedHumidityMax') !== maxFraction) {
       const currentOptions = (this.getCapabilityOptions && this.getCapabilityOptions('target_humidity')) || {};
       try {
         await this.setCapabilityOptions('target_humidity', { ...currentOptions, max: maxFraction });
         await this.setStoreValue('appliedHumidityMax', maxFraction).catch(this.error);
+        optionsChanged = true;
       } catch (err) {
         this.error('Could not apply humidity limit:', err.message);
       }
     }
+
+    // TEMPORARY diagnostics for a live bug (55% at 49°C -> 51°C landed on 0%
+    // instead of the real 45% max) that hasn't reproduced in any mock/unit
+    // test — remove once resolved. Exposed via getConfig().humidityDebugLog.
+    const afterValue = this.getCapabilityValue('target_humidity');
+    const log = this.getStoreValue('humidityDebugLog') || [];
+    log.unshift({
+      at: new Date().toISOString(),
+      source: status ? 'status-sync' : 'listener',
+      targetTemp: target,
+      currentTemp: current,
+      limitingTemp,
+      maxFraction,
+      beforeValue,
+      afterValue,
+      clamped,
+      optionsChanged,
+    });
+    await this.setStoreValue('humidityDebugLog', log.slice(0, 20)).catch(this.error);
   }
 
   /**
