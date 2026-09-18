@@ -758,10 +758,18 @@ class HuumDevice extends Homey.Device {
     this.registerCapabilityListener('huum_power', (value) => this._setPower(!!value));
 
     this.registerCapabilityListener('target_temperature', async (value) => {
-      // Keep the humidity slider's own max honest for the *new* temperature
-      // right away — otherwise it still shows a ceiling from the old value
-      // until the next poll.
-      await this._applyHumidityLimit(value);
+      // Deferred via setTimeout(...,0): Homey's SDK silently reverts a
+      // *different* capability's value if it's changed synchronously from
+      // inside a capability listener (it assumes a listener only ever
+      // touches its own capability) — confirmed on the Homey community
+      // forum as the documented workaround for exactly this symptom
+      // (setCapabilityValue appears to succeed, then quietly reverts once
+      // the listener returns). Fire-and-forget is fine: this is a UI-side
+      // clamp, not the safety check itself — _start() independently
+      // refuses to ever send an invalid combo to HUUM regardless of it.
+      this.homey.setTimeout(() => {
+        this._applyHumidityLimit(value).catch((err) => this.error('Deferred humidity limit failed:', err.message));
+      }, 0);
       // The HUUM API has no separate "set temperature while off" endpoint;
       // it only accepts a temperature as part of /start. If the heater is
       // off we just keep the value locally for the next start.

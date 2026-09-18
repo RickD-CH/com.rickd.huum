@@ -285,6 +285,31 @@ async function testHumidityLimitTracksTemperature() {
   console.log('OK: target_humidity is clamped down (value only, no capabilityOptions changes) to the real max for target/current temperature');
 }
 
+async function testHumidityLimitIsDeferredFromTemperatureListener() {
+  // Reported live: after target_temperature's listener started calling
+  // _applyHumidityLimit(), changing the temperature stopped clamping
+  // humidity at all — the value visibly "stuck" at whatever it was.
+  // Root cause (confirmed via the Homey community forum): the SDK
+  // silently reverts a *different* capability's value if it's changed
+  // synchronously from inside a capability listener, assuming a listener
+  // only ever touches its own capability. The documented workaround is to
+  // defer via setTimeout(...,0), lifting the call out of that listener's
+  // execution context.
+  const device = makeDevice({
+    capabilities: { thermostat_mode: 'off', target_temperature: 45, target_humidity: 0.8 },
+  });
+  device._registerCapabilityListeners();
+
+  await device.triggerCapabilityListener('target_temperature', 60);
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.8, 'not touched synchronously inside the listener');
+  assert.strictEqual(device.homey.__timers.length, 1, 'the humidity-limit check is scheduled via setTimeout, not awaited inline');
+
+  await device.homey.__timers[0].fn();
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'clamped to 60°C\'s real max once the deferred check runs');
+
+  console.log('OK: the temperature listener defers the humidity-limit check via setTimeout instead of applying it synchronously inside itself');
+}
+
 async function testAdaptivePollIntervalPicksActiveVsIdle() {
   const device = makeDevice({ capabilities: {} });
   // poll intervals live in the device store now (moved to the app settings page)
@@ -1085,6 +1110,7 @@ async function testStartProfilePickerFillsTheSliders() {
   await testHumidityTileFixAppliesOnce();
   await testQuickActionFixAppliesOnce();
   await testHumidityLimitTracksTemperature();
+  await testHumidityLimitIsDeferredFromTemperatureListener();
   await testAdaptivePollIntervalPicksActiveVsIdle();
   await testSessionTrackingCountsACompleteSession();
   await testSessionTrackingIgnoresEndWithNoKnownStart();
