@@ -239,8 +239,6 @@ class HuumDevice extends Homey.Device {
       stats: this._statsModel(),
       hasSteamer: this.hasCapability('target_humidity'),
       hasMeter: this._usingPowerMeter(),
-      // TEMPORARY — see _applyHumidityLimit. Remove once resolved.
-      humidityDebugLog: this.getStoreValue('humidityDebugLog') || [],
     };
   }
 
@@ -760,18 +758,10 @@ class HuumDevice extends Homey.Device {
     this.registerCapabilityListener('huum_power', (value) => this._setPower(!!value));
 
     this.registerCapabilityListener('target_temperature', async (value) => {
-      // Deferred via setTimeout(...,0): Homey's SDK silently reverts a
-      // *different* capability's value if it's changed synchronously from
-      // inside a capability listener (it assumes a listener only ever
-      // touches its own capability) — confirmed on the Homey community
-      // forum as the documented workaround for exactly this symptom
-      // (setCapabilityValue appears to succeed, then quietly reverts once
-      // the listener returns). Fire-and-forget is fine: this is a UI-side
-      // clamp, not the safety check itself — _start() independently
-      // refuses to ever send an invalid combo to HUUM regardless of it.
-      this.homey.setTimeout(() => {
-        this._applyHumidityLimit(value).catch((err) => this.error('Deferred humidity limit failed:', err.message));
-      }, 0);
+      // Keep the humidity slider's own max honest for the *new* temperature
+      // right away — _applyHumidityLimit defers internally, safe to call
+      // from here (see its own doc comment for why that matters).
+      await this._applyHumidityLimit(value);
       // The HUUM API has no separate "set temperature while off" endpoint;
       // it only accepts a temperature as part of /start. If the heater is
       // off we just keep the value locally for the next start.
@@ -1508,54 +1498,51 @@ class HuumDevice extends Homey.Device {
   }
 
   /**
-   * Clamps target_humidity down when it's no longer valid for the current
-   * target OR current temperature, whichever is higher (see lib/HuumApi.js
-   * — same rule turnOn() itself enforces). Deliberately VALUE-ONLY: two
-   * earlier versions also dynamically narrowed the slider's own
-   * capabilityOptions.max to match (so the slider's visible range matched
-   * reality, not just the value), but every variant of that — options
-   * before the value, options after, fully-merged options, fully
-   * hardcoded options — reproducibly lost the value on the real device
-   * (confirmed via live diagnostics: this function's own read-back showed
-   * the correct clamped value, but the value actually persisted on the
-   * device was 0). Whatever Homey does internally when
-   * setCapabilityOptions() and a value change land in the same
-   * turn/request for the same capability, it isn't safe here. The slider's
-   * displayed range no longer narrows with temperature — a purely
-   * cosmetic loss — but the value itself is reliably clamped with the
-   * same setCapabilityValue() path every other capability in this app
-   * already uses without issue, and _start() independently refuses to
-   * ever send an invalid combo to HUUM regardless of what the slider shows.
+   * Entry point — always defers to _applyHumidityLimitNow() via
+   * setTimeout(...,0). Safe to call from anywhere, including synchronously
+   * from inside another capability's listener (e.g. target_temperature's):
+   * confirmed via the Homey community forum that the SDK silently reverts
+   * a *different* capability's value/options change made synchronously
+   * inside a listener, assuming a listener only ever touches its own
+   * capability (community.homey.app/t/setcapabilityvalue-not-reflected/110284).
+   * Fire-and-forget is fine — this is a UI-side clamp, not the safety check
+   * itself; _start() independently refuses to ever send an invalid combo
+   * to HUUM regardless of it.
    */
   async _applyHumidityLimit(targetTemp, status) {
-    if (!this.hasCapability('target_humidity')) return;
+    this.homey.setTimeout(() => this._applyHumidityLimitNow(targetTemp, status)
+      .catch((err) => this.error('Deferred humidity limit failed:', err.message)), 0);
+  }
+
+  /**
+   * Keeps target_humidity's own slider max honest — a static 0-90% range
+   * let the owner drag it to 90% while set to 60°C, where the steamer's
+   * real ceiling is 40% — and clamps the value down if it's no longer
+   * valid for the current target OR current temperature, whichever is
+   * higher (see lib/HuumApi.js — same rule turnOn() itself enforces). Only
+   * ever called via _applyHumidityLimit's deferral; see there for why.
+   */
+  async _applyHumidityLimitNow(targetTemp, status) {
+    if (!this.hasCapability('target_humidity') || typeof this.setCapabilityOptions !== 'function') return;
     const target = typeof targetTemp === 'number' ? targetTemp : this.getCapabilityValue('target_temperature');
     if (typeof target !== 'number') return;
     const current = status && typeof status.temperature === 'number' ? status.temperature : null;
     const limitingTemp = current != null ? Math.max(target, current) : target;
     const maxFraction = Math.round(getMaxHumidityForTemperature(limitingTemp)) / 100;
 
-    const beforeValue = this.getCapabilityValue('target_humidity');
-    let afterValue = beforeValue;
-    if (typeof beforeValue === 'number' && beforeValue > maxFraction) {
-      await this._setCapabilitySafe('target_humidity', maxFraction);
-      afterValue = this.getCapabilityValue('target_humidity');
+    if (this.getStoreValue('appliedHumidityMax') !== maxFraction) {
+      try {
+        await this.setCapabilityOptions('target_humidity', { ...TARGET_HUMIDITY_OPTIONS, max: maxFraction });
+        await this.setStoreValue('appliedHumidityMax', maxFraction).catch(this.error);
+      } catch (err) {
+        this.error('Could not apply humidity limit options:', err.message);
+      }
     }
 
-    // TEMPORARY diagnostics, round 2 — remove once resolved. Exposed via
-    // getConfig().humidityDebugLog.
-    const log = this.getStoreValue('humidityDebugLog') || [];
-    log.unshift({
-      at: new Date().toISOString(),
-      source: status ? 'status-sync' : 'deferred-listener',
-      targetTemp: target,
-      currentTemp: current,
-      limitingTemp,
-      maxFraction,
-      beforeValue,
-      afterValue,
-    });
-    await this.setStoreValue('humidityDebugLog', log.slice(0, 20)).catch(this.error);
+    const currentHumidity = this.getCapabilityValue('target_humidity');
+    if (typeof currentHumidity === 'number' && currentHumidity > maxFraction) {
+      await this._setCapabilitySafe('target_humidity', maxFraction);
+    }
   }
 
   /**
