@@ -239,6 +239,8 @@ class HuumDevice extends Homey.Device {
       stats: this._statsModel(),
       hasSteamer: this.hasCapability('target_humidity'),
       hasMeter: this._usingPowerMeter(),
+      // TEMPORARY — see _applyHumidityLimitNow. Remove once resolved.
+      humidityDebugLog: this.getStoreValue('humidityDebugLog') || [],
     };
   }
 
@@ -1536,19 +1538,44 @@ class HuumDevice extends Homey.Device {
     // out-of-bounds value to 0 as a side effect of the options change
     // itself, before this function's own clamp ever got to run (reported
     // live: 55% at 50°C -> 60°C, real max 40%, landed on 0% instead of 40%).
-    const currentHumidity = this.getCapabilityValue('target_humidity');
-    if (typeof currentHumidity === 'number' && currentHumidity > maxFraction) {
+    const beforeValue = this.getCapabilityValue('target_humidity');
+    let afterClampValue = beforeValue;
+    if (typeof beforeValue === 'number' && beforeValue > maxFraction) {
       await this._setCapabilitySafe('target_humidity', maxFraction);
+      afterClampValue = this.getCapabilityValue('target_humidity');
     }
 
-    if (this.getStoreValue('appliedHumidityMax') !== maxFraction) {
+    const previousMax = this.getStoreValue('appliedHumidityMax');
+    let afterOptionsValue = afterClampValue;
+    let optionsChanged = false;
+    if (previousMax !== maxFraction) {
       try {
         await this.setCapabilityOptions('target_humidity', { ...TARGET_HUMIDITY_OPTIONS, max: maxFraction });
         await this.setStoreValue('appliedHumidityMax', maxFraction).catch(this.error);
+        optionsChanged = true;
       } catch (err) {
         this.error('Could not apply humidity limit options:', err.message);
       }
+      afterOptionsValue = this.getCapabilityValue('target_humidity');
     }
+
+    // TEMPORARY diagnostics, round 3 — remove once resolved. Exposed via
+    // getConfig().humidityDebugLog.
+    const log = this.getStoreValue('humidityDebugLog') || [];
+    log.unshift({
+      at: new Date().toISOString(),
+      source: status ? 'status-sync' : 'deferred-listener',
+      targetTemp: target,
+      currentTemp: current,
+      limitingTemp,
+      maxFraction,
+      previousMax,
+      beforeValue,
+      afterClampValue,
+      optionsChanged,
+      afterOptionsValue,
+    });
+    await this.setStoreValue('humidityDebugLog', log.slice(0, 20)).catch(this.error);
   }
 
   /**
