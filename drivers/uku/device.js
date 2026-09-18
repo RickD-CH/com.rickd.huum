@@ -818,12 +818,21 @@ class HuumDevice extends Homey.Device {
           return;
         }
         // Off — reflect the profile in the target sliders so it's clear what
-        // the next start will use (and _applyStatus won't overwrite it while off).
-        await this._setCapabilitySafe('target_temperature', temperature);
-        if (this.hasCapability('target_humidity')) {
-          const hum = this._cfg(`${value}Humidity`, null);
-          if (typeof hum === 'number') await this._setCapabilitySafe('target_humidity', hum / 100);
-        }
+        // the next start will use (and _applyStatus won't overwrite it while
+        // off). Deferred via setTimeout(...,0): Homey's SDK silently reverts
+        // a *different* capability's value change made synchronously from
+        // inside a listener (confirmed on the Homey community forum) —
+        // target_temperature and target_humidity are both different
+        // capabilities from huum_start_profile itself, so setting them
+        // inline here was getting lost the same way the temperature
+        // listener's humidity clamp used to.
+        const humidityPercent = this.hasCapability('target_humidity') ? this._cfg(`${value}Humidity`, null) : null;
+        this.homey.setTimeout(() => (async () => {
+          await this._setCapabilitySafe('target_temperature', temperature);
+          if (typeof humidityPercent === 'number') {
+            await this._setCapabilitySafe('target_humidity', humidityPercent / 100);
+          }
+        })().catch((err) => this.error('Deferred profile-pick apply failed:', err.message)), 0);
       });
     }
   }
@@ -1498,28 +1507,32 @@ class HuumDevice extends Homey.Device {
   /**
    * Clamps target_humidity down when it's no longer valid for the current
    * target OR current temperature, whichever is higher (see lib/HuumApi.js
-   * — same rule turnOn() itself enforces). FINAL: value-only, no dynamic
-   * capabilityOptions.max, and this is not up for another round.
-   *
-   * Every combination tried — options before value, value before options,
-   * fully-merged options, fully hardcoded options, deferred via
-   * setTimeout(...,0) (the documented fix for a *different*, confirmed
-   * Homey SDK behavior: reverting a value/options change made synchronously
-   * inside another capability's listener) — reproduced the same failure on
-   * the real device in live testing: this function's own read-back
-   * (getCapabilityValue, checked over multiple independent poll cycles)
-   * consistently showed the correct clamped value, while the value
-   * externally reported by the Homey platform/app was 0. That gap is
-   * outside this app's visibility — changing target_humidity's value and
-   * its capabilityOptions together is not reliable on this platform,
-   * regardless of ordering or deferral. Only ever calls setCapabilityValue
-   * (via _setCapabilitySafe) — the same path every other capability in
-   * this app already uses reliably. The slider's displayed range no longer
-   * narrows with temperature (a cosmetic loss), but the value itself is
-   * reliably clamped, and _start() independently refuses to ever send an
-   * invalid combo to HUUM regardless of what the slider shows.
+   * — same rule turnOn() itself enforces). Value-only, no dynamic
+   * capabilityOptions.max: every variant that *also* touched options
+   * (before/after/merged/hardcoded value, deferred or not) reproduced a
+   * confirmed target_humidity-specific Homey platform bug in live testing
+   * — this function's own read-back showed the correct value while the
+   * value externally reported by the platform was 0 (matches
+   * github.com/athombv/homey-apps-sdk-issues/issues/422, an open,
+   * unresolved report of exactly this capability being inconsistent
+   * between the UI and the stored value). Options are never touched here
+   * again; the slider's displayed range stays static (cosmetic loss), but
+   * _start() independently refuses to ever send an invalid combo to HUUM
+   * regardless of what it shows.
    */
   async _applyHumidityLimit(targetTemp, status) {
+    // Always deferred via setTimeout(...,0), even though this only ever
+    // touches the VALUE now (no capabilityOptions) — the community-forum
+    // reversion behavior isn't specific to combining a value with an
+    // options change, it applies to *any* synchronous write to a
+    // *different* capability from inside a listener (this is called
+    // directly from the target_temperature listener). Safe to call from
+    // anywhere, listener or not.
+    this.homey.setTimeout(() => this._applyHumidityLimitNow(targetTemp, status)
+      .catch((err) => this.error('Deferred humidity limit failed:', err.message)), 0);
+  }
+
+  async _applyHumidityLimitNow(targetTemp, status) {
     if (!this.hasCapability('target_humidity')) return;
     const target = typeof targetTemp === 'number' ? targetTemp : this.getCapabilityValue('target_temperature');
     if (typeof target !== 'number') return;
