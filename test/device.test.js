@@ -209,23 +209,21 @@ async function testThermostatMigrationInPlace() {
 }
 
 async function testHumidityTileFixAppliesOnce() {
-  // target_humidity's uiComponent was "thermostat" — fine as its own tile
-  // under class:heater, but silently hidden once the device became a real
-  // class:thermostat (target_temperature+measure_temperature now claim that
-  // uiComponent as the actual composite dial). Existing devices need this
-  // pushed via setCapabilityOptions(); a manifest change alone doesn't
-  // reach an already-paired device.
-  const device = makeDevice({ capabilities: { target_humidity: 0.5, measure_humidity: 20 } });
+  // measure_humidity's title drops "current/aktuelle" — existing devices
+  // need this pushed via setCapabilityOptions(); a manifest change alone
+  // doesn't reach an already-paired device. (target_humidity's own
+  // uiComponent/decimals fix moved into _applyHumidityLimit, covered by
+  // testHumidityLimitTracksTemperature.)
+  const device = makeDevice({ capabilities: { measure_humidity: 20 } });
   await device._applyHumidityTileFix();
-  assert.strictEqual(device.getCapabilityOptions('target_humidity').uiComponent, 'slider');
   assert.deepStrictEqual(device.getCapabilityOptions('measure_humidity').title, { en: 'Humidity', de: 'Feuchtigkeit' });
   assert.strictEqual(device.getStoreValue('humidityTileFixApplied2'), true);
 
   // Second call is a no-op (guarded by the store flag) — must not re-push.
   device.__capabilityOptions = {};
   await device._applyHumidityTileFix();
-  assert.strictEqual(device.getCapabilityOptions('target_humidity'), undefined, 'guarded: does not re-apply once the flag is set');
-  console.log('OK: target_humidity/measure_humidity tile options are fixed once for existing devices');
+  assert.strictEqual(device.getCapabilityOptions('measure_humidity'), undefined, 'guarded: does not re-apply once the flag is set');
+  console.log('OK: measure_humidity\'s tile title is fixed once for existing devices');
 }
 
 async function testQuickActionFixAppliesOnce() {
@@ -260,6 +258,13 @@ async function testHumidityLimitTracksTemperature() {
   await device._applyHumidityLimit(60);
   assert.strictEqual(device.getCapabilityOptions('target_humidity').max, 0.4, 'max drops to 40% at 60°C');
   assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.4, 'the now-too-high value is clamped down');
+  // Regression: the options push must be the full object every time, never
+  // a merge with getCapabilityOptions()'s return value — confirmed live
+  // that merging can silently drop `step`, and a value that was exactly
+  // valid under the intended 0.05 step then snapped to 0 once Homey
+  // re-validated it against a step that had quietly reverted to its default.
+  assert.strictEqual(device.getCapabilityOptions('target_humidity').step, 0.05, 'step must never be dropped from the options push');
+  assert.strictEqual(device.getCapabilityOptions('target_humidity').uiComponent, 'slider');
 
   // Lowering the temperature raises the max again, but the value — already
   // valid at 0.4, which is <= the new 0.9 max — is left exactly as is.

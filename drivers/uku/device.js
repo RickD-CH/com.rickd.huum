@@ -26,6 +26,31 @@ const DEFAULT_PROFILES = {
   profile3Name: 'Family', profile3Temperature: 75, profile3Humidity: 25,
 };
 
+// Full capabilitiesOptions for capabilities this app updates at runtime via
+// setCapabilityOptions(). Always sent whole — never merged with
+// getCapabilityOptions()'s return value. Confirmed live: that merge can
+// silently drop fields (observed losing `step`), and a value that was
+// exactly valid under the intended 0.05 step snapped to 0 once Homey
+// re-validated it against a step that had quietly reverted to its default.
+const TARGET_HUMIDITY_OPTIONS = {
+  min: 0, step: 0.05, decimals: 0, uiComponent: 'slider',
+  title: { en: 'Target humidity', de: 'Zielfeuchte' },
+};
+const TARGET_TEMPERATURE_OPTIONS = {
+  step: 1, decimals: 0, uiComponent: 'thermostat',
+  title: { en: 'Target temperature', de: 'Zieltemperatur' },
+};
+const THERMOSTAT_MODE_OPTIONS = {
+  uiQuickAction: true,
+  values: [
+    { id: 'heat', title: { en: 'Heat', de: 'Heizen' } },
+    { id: 'off', title: { en: 'Off', de: 'Aus' } },
+  ],
+};
+const MEASURE_HUMIDITY_OPTIONS = {
+  decimals: 0, title: { en: 'Humidity', de: 'Feuchtigkeit' },
+};
+
 class HuumDevice extends Homey.Device {
 
   async onInit() {
@@ -1459,16 +1484,13 @@ class HuumDevice extends Homey.Device {
     // forever if the heater's limits differ from the app.json defaults.
     if (this.getStoreValue('appliedTempLimits') === key) return;
 
-    const current = (this.getCapabilityOptions && this.getCapabilityOptions('target_temperature')) || {};
-    if (current.min === config.minTemp && current.max === config.maxTemp) {
-      await this.setStoreValue('appliedTempLimits', key).catch(this.error);
-      return;
-    }
-
     try {
-      // Merge — a bare { min, max } would drop step/decimals/uiComponent/title.
+      // Always the full options object, never a merge with
+      // getCapabilityOptions()'s return value — confirmed live (on
+      // target_humidity, same pattern) that it doesn't reliably reflect the
+      // complete current options and can silently drop fields like `step`.
       await this.setCapabilityOptions('target_temperature', {
-        ...current,
+        ...TARGET_TEMPERATURE_OPTIONS,
         min: config.minTemp,
         max: config.maxTemp,
       });
@@ -1526,9 +1548,8 @@ class HuumDevice extends Homey.Device {
     // when the max actually changed.
     let optionsChanged = false;
     if (this.getStoreValue('appliedHumidityMax') !== maxFraction) {
-      const currentOptions = (this.getCapabilityOptions && this.getCapabilityOptions('target_humidity')) || {};
       try {
-        await this.setCapabilityOptions('target_humidity', { ...currentOptions, max: maxFraction });
+        await this.setCapabilityOptions('target_humidity', { ...TARGET_HUMIDITY_OPTIONS, max: maxFraction });
         await this.setStoreValue('appliedHumidityMax', maxFraction).catch(this.error);
         optionsChanged = true;
       } catch (err) {
@@ -1570,16 +1591,11 @@ class HuumDevice extends Homey.Device {
   async _applyHumidityTileFix() {
     if (this.getStoreValue('humidityTileFixApplied2') || typeof this.setCapabilityOptions !== 'function') return;
     try {
-      if (this.hasCapability('target_humidity')) {
-        const current = (this.getCapabilityOptions && this.getCapabilityOptions('target_humidity')) || {};
-        await this.setCapabilityOptions('target_humidity', { ...current, uiComponent: 'slider', decimals: 0 });
-      }
+      // target_humidity's own uiComponent/decimals fix now lives in
+      // _applyHumidityLimit, which always sends the full options object and
+      // so covers this on its first run too — nothing left to do for it here.
       if (this.hasCapability('measure_humidity')) {
-        const current = (this.getCapabilityOptions && this.getCapabilityOptions('measure_humidity')) || {};
-        await this.setCapabilityOptions('measure_humidity', {
-          ...current,
-          title: { en: 'Humidity', de: 'Feuchtigkeit' },
-        });
+        await this.setCapabilityOptions('measure_humidity', MEASURE_HUMIDITY_OPTIONS);
       }
       await this.setStoreValue('humidityTileFixApplied2', true).catch(this.error);
     } catch (err) {
@@ -1596,8 +1612,7 @@ class HuumDevice extends Homey.Device {
     if (this.getStoreValue('quickActionFixApplied') || typeof this.setCapabilityOptions !== 'function') return;
     try {
       if (this.hasCapability('thermostat_mode')) {
-        const current = (this.getCapabilityOptions && this.getCapabilityOptions('thermostat_mode')) || {};
-        await this.setCapabilityOptions('thermostat_mode', { ...current, uiQuickAction: true });
+        await this.setCapabilityOptions('thermostat_mode', THERMOSTAT_MODE_OPTIONS);
       }
       await this.setStoreValue('quickActionFixApplied', true).catch(this.error);
     } catch (err) {
