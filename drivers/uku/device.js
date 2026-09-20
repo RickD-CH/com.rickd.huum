@@ -1021,11 +1021,20 @@ class HuumDevice extends Homey.Device {
       await this.setAvailable().catch(this.error);
     }
 
-    await this._reconcileCapabilities(status);
-    await this._applyStatus(status);
-
-    this._lastStatus = status;
-    this._scheduleNextPoll();
+    // Applying the status touches a lot of ground (capabilities, warnings,
+    // session bookkeeping, Flow triggers) — one unexpected throw in there
+    // must not kill the polling loop for the rest of the session, or every
+    // trigger downstream of a fresh reading (up-to-temperature, finishing
+    // soon, ...) silently stops firing until something else re-syncs.
+    try {
+      await this._reconcileCapabilities(status);
+      await this._applyStatus(status);
+    } catch (err) {
+      this.error('Applying status failed:', err.message);
+    } finally {
+      this._lastStatus = status;
+      this._scheduleNextPoll();
+    }
 
     return status;
   }

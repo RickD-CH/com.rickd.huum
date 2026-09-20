@@ -345,6 +345,27 @@ async function testAdaptivePollIntervalPicksActiveVsIdle() {
   console.log('OK: adaptive polling picks the active interval while heating, idle interval otherwise');
 }
 
+async function testSyncStatusKeepsPollingAfterApplyStatusThrows() {
+  // A single unexpected throw anywhere inside _applyStatus (session
+  // bookkeeping, warnings, ...) must not silently kill the polling loop —
+  // otherwise every Flow trigger that depends on a later poll (up-to-temp,
+  // finishing-soon, ...) stops firing for the rest of the session.
+  const device = makeDevice({ capabilities: {} });
+  const status = { isHeating: true, temperature: 90, targetTemperature: 90, doorClosed: true };
+  device.api = { getStatus: async () => status };
+  device._trackSessionStats = async () => { throw new Error('boom'); };
+
+  await device._syncStatus(); // must resolve, not reject
+
+  assert.strictEqual(device.homey.__timers.length, 1, 'polling is still rescheduled after the throw');
+  assert.deepStrictEqual(device._lastStatus, status, 'the fetched status is still recorded for the next poll');
+  assert.ok(
+    device.__errors.some((e) => e.includes('Applying status failed') && e.includes('boom')),
+    'the failure is logged instead of silently swallowed',
+  );
+  console.log('OK: _syncStatus keeps the polling loop alive even if applying a status throws');
+}
+
 async function testSessionTrackingCountsACompleteSession() {
   const device = makeDevice({
     capabilities: { huum_session_count: 0, thermostat_mode: 'off' },
@@ -1165,6 +1186,7 @@ async function testReliableTargetHumidityFractionPrefersTheMirror() {
   await testHumidityLimitTracksTemperature();
   await testHumidityLimitIsDeferredFromTemperatureListener();
   await testAdaptivePollIntervalPicksActiveVsIdle();
+  await testSyncStatusKeepsPollingAfterApplyStatusThrows();
   await testSessionTrackingCountsACompleteSession();
   await testSessionTrackingIgnoresEndWithNoKnownStart();
   await testSaveAndStartWithProfile();
