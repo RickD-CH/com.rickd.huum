@@ -315,8 +315,12 @@
       {
         "id": "huum_finishing_soon",
         "title": {
-          "en": "The sauna will be done heating soon",
-          "de": "Die Sauna ist bald fertig geheizt"
+          "en": "Maximum heating duration almost reached",
+          "de": "Maximale Heizdauer bald erreicht"
+        },
+        "hint": {
+          "en": "About the UKU's own maximum session length (automatic shut-off), not about reaching the target temperature.",
+          "de": "Bezieht sich auf die maximale Sitzungsdauer der UKU (automatische Abschaltung), nicht auf das Erreichen der Zieltemperatur."
         },
         "args": [
           {
