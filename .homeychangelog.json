@@ -62,5 +62,9 @@
   "0.8.5": {
     "en": "Fixed a bug where a single failed status update could silently stop the \"up to temperature\" / \"finishing soon\" Flow triggers from firing again for the rest of the session.",
     "de": "Einen Fehler behoben, bei dem eine einzelne fehlgeschlagene Status-Aktualisierung die Flow-Karten \"Zieltemperatur erreicht\" / \"bald fertig geheizt\" fuer den Rest der Sitzung stillschweigend verstummen liess."
+  },
+  "0.8.6": {
+    "en": "Renamed a confusingly-worded Flow trigger (it's about the auto shut-off timer, not the target temperature) and added a link to the Community forum on the app's info page.",
+    "de": "Einen missverstaendlich benannten Flow-Trigger umbenannt (er betrifft die Auto-Abschaltung, nicht die Zieltemperatur) und einen Link zum Community-Forum auf der App-Infoseite ergaenzt."
   }
 }
