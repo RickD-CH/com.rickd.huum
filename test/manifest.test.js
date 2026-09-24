@@ -56,17 +56,19 @@ console.log('OK: author/donate info present and matches the no-public-email conv
 // --- 1.7 Brand color, SDK, permissions ------------------------------------
 assert.match(appJson.brandColor || '', /^#[0-9a-fA-F]{6}$/, 'brandColor must be set as a hex color (guideline 1.7)');
 assert.strictEqual(appJson.sdk, 3, 'new apps must be built on SDK v3 (guideline 1.14)');
-// `homey:manager:api` is requested so the user can link a real power meter
-// (e.g. a Shelly) for the Energy estimate, from the app settings page. This
-// permission is Homey-Cloud-incompatible and would be scrutinised at App
-// Store review — which is fine: this app is a personal `homey app install`,
-// hence `platforms: ["local"]` too.
+// `homey:manager:api` used to be requested to let the user link a real power
+// meter (e.g. a Shelly) for the Energy estimate. Athom's review rejected
+// that: the permission's guide reserves it for apps whose core function is
+// broad, cross-system functionality, not a single optional feature on an
+// app that already talks to one specific physical device. Removed entirely
+// in favour of the kW-estimate / Flow-fed `set_measured_power` options,
+// neither of which need any permission at all.
 assert.deepStrictEqual(
-  appJson.permissions, ['homey:manager:api'],
-  'the only expected permission is homey:manager:api (power-meter linking) — update this test deliberately if that changes',
+  appJson.permissions, [],
+  'no permissions expected — update this test deliberately if a new one is genuinely needed',
 );
-assert.deepStrictEqual(appJson.platforms, ['local'], 'app is local-only (app settings page + manager:api are not supported on Homey Cloud)');
-console.log('OK: brandColor present, SDK v3, permissions limited to the justified homey:manager:api');
+assert.deepStrictEqual(appJson.platforms, ['local'], 'app is local-only (the custom app settings page needs local)');
+console.log('OK: brandColor present, SDK v3, no permissions requested');
 
 // --- 1.5/1.6 Icons ---------------------------------------------------------
 const appIconPath = path.join(APP_DIR, 'assets', 'icon.svg');

@@ -16,7 +16,6 @@ async function run() {
       getConfig: () => ({ profiles: [{ id: 'profile1' }], advanced: { pollInterval: 30 }, power: { source: 'estimate' } }),
       setConfig: async (body) => ({ echoed: body }),
     } : null),
-    getPowerMeters: async () => [{ id: 'm1', name: 'Shelly Plug', power: 1200 }],
   };
   const homey = { app };
 
@@ -39,16 +38,7 @@ async function run() {
   const saved = await api.setDeviceConfig({ homey, params: { id: 'a' }, body: { advanced: { pollInterval: 45 } } });
   assert.deepStrictEqual(saved, { echoed: { advanced: { pollInterval: 45 } } });
 
-  const meters = await api.getPowerMeters({ homey });
-  assert.strictEqual(meters.available, true);
-  assert.strictEqual(meters.devices[0].id, 'm1');
-
-  // Permission missing / Web API unavailable -> graceful, page falls back to kW.
-  const degraded = await api.getPowerMeters({ homey: { app: { getPowerMeters: async () => { throw new Error('no permission'); } } } });
-  assert.strictEqual(degraded.available, false);
-  assert.deepStrictEqual(degraded.devices, []);
-
-  console.log('OK: api.js overview / device config / power-meter handlers');
+  console.log('OK: api.js overview / device config handlers');
   console.log('\nAll api.js tests passed.');
 }
 

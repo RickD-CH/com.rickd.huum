@@ -66,5 +66,9 @@
   "0.8.6": {
     "en": "Renamed a confusingly-worded Flow trigger (it's about the auto shut-off timer, not the target temperature) and added a link to the Community forum on the app's info page.",
     "de": "Einen missverstaendlich benannten Flow-Trigger umbenannt (er betrifft die Auto-Abschaltung, nicht die Zieltemperatur) und einen Link zum Community-Forum auf der App-Infoseite ergaenzt."
+  },
+  "0.9.0": {
+    "en": "Removed the manager:api permission and the linked-meter option entirely; energy tracking now uses the kW estimate or a value fed in from your own Flow.",
+    "de": "Die manager:api-Berechtigung und die Direktverknuepfung eines Strommessgeraets komplett entfernt; die Verbrauchserfassung nutzt jetzt die kW-Schaetzung oder einen per Flow uebergebenen Wert."
   }
 }

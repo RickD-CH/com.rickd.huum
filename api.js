@@ -30,15 +30,4 @@ module.exports = {
     return device.setConfig(body || {});
   },
 
-  /** GET /power-meters — devices exposing measure_power, for the picker. */
-  async getPowerMeters({ homey }) {
-    try {
-      return { available: true, devices: await homey.app.getPowerMeters() };
-    } catch (err) {
-      // Permission not granted / API unavailable — the page falls back to
-      // the manual kW field only.
-      return { available: false, error: err.message, devices: [] };
-    }
-  },
-
 };
