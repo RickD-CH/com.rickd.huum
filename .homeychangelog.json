@@ -70,5 +70,9 @@
   "0.9.0": {
     "en": "Removed the manager:api permission and the linked-meter option entirely; energy tracking now uses the kW estimate or a value fed in from your own Flow.",
     "de": "Die manager:api-Berechtigung und die Direktverknuepfung eines Strommessgeraets komplett entfernt; die Verbrauchserfassung nutzt jetzt die kW-Schaetzung oder einen per Flow uebergebenen Wert."
+  },
+  "0.9.1": {
+    "en": "The humidity slider no longer shows a hard error while dragging through an invalid percentage on the way to a valid one — it's clamped instead, same as everywhere else in the app.",
+    "de": "Der Feuchte-Regler zeigt beim Ziehen durch einen ungueltigen Prozentwert (auf dem Weg zu einem gueltigen) keinen harten Fehler mehr an — er wird stattdessen geklemmt, wie ueberall sonst in der App."
   }
 }

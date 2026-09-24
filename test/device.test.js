@@ -822,6 +822,36 @@ async function testHumidityCapabilityScales() {
   console.log('OK: measure_humidity is 0-100, target_humidity is the 0-1 fraction Homey expects');
 }
 
+async function testTargetHumidityListenerClampsInsteadOfRejectingWhileHeating() {
+  // Reported live: a touch-drag on the humidity slider commits every
+  // intermediate percentage it sweeps through on the way to where the
+  // finger settles, not just the final one. Without clamping, a drag that
+  // passes through an invalid percentage (e.g. sweeping up through 100%
+  // before settling on a valid 55%) throws a real humidity_exceeds_max
+  // error and shows a confusing toast, even though the slider ends up
+  // showing a perfectly valid final value a moment later.
+  const device = makeDevice({
+    capabilities: {
+      thermostat_mode: 'heat', target_temperature: 50, target_humidity: 1, huum_target_humidity: 100,
+    },
+  });
+  device._lastStatus = { temperature: 45 };
+  let captured = null;
+  device.api = { turnOn: async (a) => { captured = a; return {}; }, getStatus: async () => { throw new Error('no refresh'); } };
+  device._registerCapabilityListeners();
+
+  // The drag passed through 100% at 50°C — real max there is 55%.
+  await device.triggerCapabilityListener('target_humidity', 1);
+  assert.strictEqual(captured.humidity, 55, 'clamped to the real max instead of rejected');
+  assert.strictEqual(device.getCapabilityValue('target_humidity'), 0.55, 'slider snaps to the clamped value, not left at 100%');
+
+  assert.ok(device.homey.__timers.length >= 1, 'the read-only mirror update is deferred, same as everywhere else');
+  await device.homey.__timers[0].fn();
+  assert.strictEqual(device.getCapabilityValue('huum_target_humidity'), 55, 'read-only mirror reflects the clamped value too');
+
+  console.log('OK: the target_humidity listener clamps down to the real max instead of throwing while heating');
+}
+
 async function testTargetsNotOverwrittenWhileOff() {
   const device = makeDevice({
     capabilities: { thermostat_mode: 'off', target_temperature: 55, target_humidity: 0.4, measure_humidity: 0 },
@@ -1196,6 +1226,7 @@ async function testReliableTargetHumidityFractionPrefersTheMirror() {
   await testAutoOffSurvivesRestartAndClearsWhenOff();
   await testStartProfilePickerStartsWithThatProfile();
   await testHumidityCapabilityScales();
+  await testTargetHumidityListenerClampsInsteadOfRejectingWhileHeating();
   console.log('\nAll device.js exception-handling tests passed.');
 })().catch((err) => {
   console.error('TEST FAILED:', err);

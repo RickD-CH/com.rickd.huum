@@ -708,7 +708,35 @@ class HuumDevice extends Homey.Device {
     // in the official HUUM app. Only present on saunas with a steamer.
     if (this.hasCapability('target_humidity')) {
       this.registerCapabilityListener('target_humidity', async (value) => {
-        const humidityPercent = Math.round(value * 100);
+        let humidityPercent = Math.round(value * 100);
+        if (!this._isHeating()) {
+          // Keep it locally; it will be sent along with the next start. Any
+          // value too high for the current target temperature gets caught
+          // by _applyHumidityLimit on the next status poll, same as always.
+          await this.setCapabilityValue('target_humidity', value).catch(this.error);
+          await this._clearStartProfileOnManualChange();
+          if (this.hasCapability('huum_target_humidity')) {
+            this.homey.setTimeout(() => this._setCapabilitySafe('huum_target_humidity', humidityPercent)
+              .catch((err) => this.error('Humidity display mirror failed:', err.message)), 0);
+          }
+          return;
+        }
+        const temperature = this.getCapabilityValue('target_temperature') || 80;
+        // Clamp instead of reject — same philosophy as the profile-save clamp
+        // and the temperature-triggered auto-clamp. A touch-drag on the
+        // slider commits every intermediate position it passes through, not
+        // just the one the finger settles on; without this, sweeping through
+        // an invalid percentage on the way to a valid one throws a real
+        // humidity_exceeds_max error and shows a confusing toast even though
+        // the slider ends up showing a perfectly valid final value.
+        const currentMeasured = this._lastStatus && typeof this._lastStatus.temperature === 'number'
+          ? this._lastStatus.temperature : null;
+        const limitingTemp = currentMeasured != null ? Math.max(temperature, currentMeasured) : temperature;
+        const maxHumidity = Math.round(getMaxHumidityForTemperature(limitingTemp));
+        if (humidityPercent > maxHumidity) {
+          humidityPercent = maxHumidity;
+          await this._setCapabilitySafe('target_humidity', maxHumidity / 100);
+        }
         // Read-only mirror for the device card (huum_target_humidity):
         // always correct even when the settable slider itself briefly shows
         // a wrong value (confirmed Homey platform bug, see
@@ -718,13 +746,6 @@ class HuumDevice extends Homey.Device {
           this.homey.setTimeout(() => this._setCapabilitySafe('huum_target_humidity', humidityPercent)
             .catch((err) => this.error('Humidity display mirror failed:', err.message)), 0);
         }
-        if (!this._isHeating()) {
-          // Keep it locally; it will be sent along with the next start.
-          await this.setCapabilityValue('target_humidity', value).catch(this.error);
-          await this._clearStartProfileOnManualChange();
-          return;
-        }
-        const temperature = this.getCapabilityValue('target_temperature') || 80;
         await this._start(temperature, humidityPercent);
         await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
       });
