@@ -74,5 +74,9 @@
   "0.9.1": {
     "en": "The humidity slider no longer shows a hard error while dragging through an invalid percentage on the way to a valid one — it's clamped instead, same as everywhere else in the app.",
     "de": "Der Feuchte-Regler zeigt beim Ziehen durch einen ungueltigen Prozentwert (auf dem Weg zu einem gueltigen) keinen harten Fehler mehr an — er wird stattdessen geklemmt, wie ueberall sonst in der App."
+  },
+  "0.9.2": {
+    "en": "Redrawn driver icon (person + steam, no outer frame) so it's actually recognisable at small sizes instead of a dark blob.",
+    "de": "Geraete-Icon neu gezeichnet (Person + Dampf, ohne Rahmen), damit es in kleiner Groesse wirklich erkennbar ist statt ein dunkler Fleck."
   }
 }
