@@ -78,5 +78,9 @@
   "0.9.2": {
     "en": "Redrawn driver icon (person + steam, no outer frame) so it's actually recognisable at small sizes instead of a dark blob.",
     "de": "Geraete-Icon neu gezeichnet (Person + Dampf, ohne Rahmen), damit es in kleiner Groesse wirklich erkennbar ist statt ein dunkler Fleck."
+  },
+  "0.9.3": {
+    "en": "A period where the UKU reports \"heating\" but the door was never closed (so it never actually heated) is no longer counted as a sauna session.",
+    "de": "Ein Zeitraum, in dem die UKU \"heizt\" meldet, die Tuer aber nie geschlossen war (also nie wirklich geheizt wurde), zaehlt nicht mehr als Sauna-Sitzung."
   }
 }

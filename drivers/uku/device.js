@@ -1285,6 +1285,10 @@ class HuumDevice extends Homey.Device {
     await this._setCapabilitySafe('huum_session_count', this.getStoreValue('sessionCount') || 0);
     await this._accrueSessionEnergy();
 
+    if (status.isHeating && this.getStoreValue('sessionDoorClosed') === false && this._doorClosedFor(status)) {
+      await this.setStoreValue('sessionDoorClosed', true);
+    }
+
     const wasHeating = this._lastStatus ? this._lastStatus.isHeating : undefined;
     const isHeating = status.isHeating;
 
@@ -1314,6 +1318,19 @@ class HuumDevice extends Homey.Device {
     );
     await this.setStoreValue('sessionWh', 0);
     await this.setStoreValue('sessionEnergyAt', Date.now());
+    await this.setStoreValue('sessionDoorClosed', this._doorClosedFor(status));
+  }
+
+  /**
+   * The UKU keeps reporting "heating" while the door is open even though the
+   * element never powers up (live case: a 60 minute "session" with 0.04 kWh
+   * and +2 °C). A session only counts once the door was seen closed at least
+   * once. Without a door contact the API reports the door as permanently
+   * open, so there it can't be judged and always counts; so does a status
+   * that doesn't say either way.
+   */
+  _doorClosedFor(status) {
+    return !this._sensorPresent('door', status) || status.doorClosed !== false;
   }
 
   /** Best guess at the heater's current draw in watts. */
@@ -1357,6 +1374,17 @@ class HuumDevice extends Homey.Device {
     const startedAt = this.getStoreValue('sessionStartedAt');
     if (!startedAt) return; // App restarted mid-session — no reliable start time to measure from.
 
+    // Only an explicit false: a session that began before this flag existed
+    // has no value and still counts.
+    if (this.getStoreValue('sessionDoorClosed') === false) {
+      this.log('Ignoring a "heating" period during which the door was never closed');
+      await this.setStoreValue('sessionStartedAt', null);
+      await this.setStoreValue('sessionWh', 0);
+      await this.setStoreValue('sessionEnergyAt', null);
+      await this.setStoreValue('sessionDoorClosed', null);
+      return;
+    }
+
     await this._accrueSessionEnergy(); // credit the final poll-to-stop interval
 
     const endedAt = Date.now();
@@ -1387,6 +1415,7 @@ class HuumDevice extends Homey.Device {
     await this.setStoreValue('sessionStartedAt', null);
     await this.setStoreValue('sessionWh', 0);
     await this.setStoreValue('sessionEnergyAt', null);
+    await this.setStoreValue('sessionDoorClosed', null);
 
     await this._setCapabilitySafe('huum_session_count', sessionCount);
 

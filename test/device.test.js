@@ -401,6 +401,54 @@ async function testSessionTrackingCountsACompleteSession() {
   console.log('OK: a full on->off cycle counts one session, records it, and fires sauna_session_ended');
 }
 
+async function testSessionNeverCountsWhenTheDoorWasNeverClosed() {
+  // Live case: a UKU reported "heating" for an hour with the door open (no
+  // heat, +2 °C, 0.04 kWh) and the app counted it as a session.
+  const openDoor = { isHeating: true, targetTemperature: 50, targetHumidity: 90, doorClosed: false };
+  const start = async (device) => {
+    device._lastStatus = { isHeating: false };
+    await device._trackSessionStats(openDoor);
+    device.__store.sessionStartedAt -= 60 * 60 * 1000;
+  };
+
+  // Door open the whole time -> not a session.
+  const never = makeDevice({ capabilities: { huum_session_count: 0 } });
+  await start(never);
+  never._lastStatus = openDoor;
+  await never._trackSessionStats(openDoor);
+  never._lastStatus = openDoor;
+  await never._trackSessionStats({ isHeating: false, doorClosed: false });
+  assert.ok(!never.getStoreValue('sessionCount'), 'no session counted');
+  assert.ok(!never.getStoreValue('lastSession'), 'nothing recorded');
+  assert.strictEqual(never.homey.__triggeredCards.filter((t) => t.id === 'sauna_session_ended').length, 0, 'no sauna_session_ended trigger');
+  assert.strictEqual(never.getStoreValue('sessionStartedAt'), null, 'tracking state is cleared');
+
+  // Door gets closed during the run -> counts normally.
+  const closed = makeDevice({ capabilities: { huum_session_count: 0 } });
+  await start(closed);
+  closed._lastStatus = openDoor;
+  await closed._trackSessionStats({ ...openDoor, doorClosed: true });
+  closed._lastStatus = { ...openDoor, doorClosed: true };
+  await closed._trackSessionStats({ isHeating: false, doorClosed: true });
+  assert.strictEqual(closed.getStoreValue('sessionCount'), 1, 'counted once the door was seen closed');
+
+  // No door contact fitted: the API reports "open" forever, so it can't be judged.
+  const noContact = makeDevice({ capabilities: { huum_session_count: 0 } });
+  noContact.__settings = { doorSensorMode: 'absent' };
+  await start(noContact);
+  noContact._lastStatus = openDoor;
+  await noContact._trackSessionStats({ isHeating: false, doorClosed: false });
+  assert.strictEqual(noContact.getStoreValue('sessionCount'), 1, 'a sauna without a door contact always counts');
+
+  // A session already running before this rule existed has no flag -> still counts.
+  const legacy = makeDevice({ capabilities: { huum_session_count: 0 } });
+  legacy.__store.sessionStartedAt = Date.now() - 30 * 60 * 1000;
+  legacy._lastStatus = openDoor;
+  await legacy._trackSessionStats({ isHeating: false, doorClosed: false });
+  assert.strictEqual(legacy.getStoreValue('sessionCount'), 1, 'in-flight session from before the upgrade still counts');
+  console.log('OK: a "heating" period with the door never closed is not counted as a session (sensor-less saunas and in-flight sessions unaffected)');
+}
+
 async function testSessionTrackingIgnoresEndWithNoKnownStart() {
   // E.g. the app restarted while already off, or store got cleared —
   // ending a session we never saw start must not fabricate a count.
@@ -1193,6 +1241,7 @@ async function testReliableTargetHumidityFractionPrefersTheMirror() {
   await testSyncStatusKeepsPollingAfterApplyStatusThrows();
   await testSessionTrackingCountsACompleteSession();
   await testSessionTrackingIgnoresEndWithNoKnownStart();
+  await testSessionNeverCountsWhenTheDoorWasNeverClosed();
   await testSaveAndStartWithProfile();
   await testStartWithUnconfiguredProfileThrows();
   await testWaterSensorAbsentHidesAlarm();
