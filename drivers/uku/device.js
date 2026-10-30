@@ -383,20 +383,52 @@ class HuumDevice extends Homey.Device {
    * Homey's own language, same as the user sees everywhere else on it.
    */
   _formatDeviceDateTime(ms) {
+    try {
+      const { date, time } = this._deviceDateTimeParts(ms);
+      return `${date} ${time}`;
+    } catch (err) {
+      return new Date(ms).toLocaleString(); // best-effort fallback if Intl/timeZone data is missing
+    }
+  }
+
+  /** The `{ date: 'DD.MM.YYYY', time }` halves of _formatDeviceDateTime. */
+  _deviceDateTimeParts(ms) {
     let timeZone;
     try { timeZone = this.homey.clock.getTimezone(); } catch (err) { /* clock manager unavailable — fall through */ }
     let language;
     try { language = this.homey.i18n.getLanguage(); } catch (err) { /* i18n manager unavailable — fall through */ }
-    try {
-      const date = new Date(ms);
-      const d = new Intl.DateTimeFormat('en-GB', {
-        timeZone, day: '2-digit', month: '2-digit', year: 'numeric',
-      }).formatToParts(date).reduce((o, p) => { o[p.type] = p.value; return o; }, {});
-      const time = new Intl.DateTimeFormat(language || 'en', { timeZone, hour: '2-digit', minute: '2-digit' }).format(date);
-      return `${d.day}.${d.month}.${d.year} ${time}`;
-    } catch (err) {
-      return new Date(ms).toLocaleString(); // best-effort fallback if Intl/timeZone data is missing
-    }
+    const at = new Date(ms);
+    const d = new Intl.DateTimeFormat('en-GB', {
+      timeZone, day: '2-digit', month: '2-digit', year: 'numeric',
+    }).formatToParts(at).reduce((o, p) => { o[p.type] = p.value; return o; }, {});
+    const time = new Intl.DateTimeFormat(language || 'en', { timeZone, hour: '2-digit', minute: '2-digit' }).format(at);
+    return { date: `${d.day}.${d.month}.${d.year}`, time };
+  }
+
+  /**
+   * The pending scheduled start as the widget wants it: the day as
+   * 'today' / 'tomorrow' (so the widget can word it in its own language) or
+   * null for anything further out, plus the date and time already rendered
+   * in the Homey's own timezone and clock format.
+   */
+  _widgetBooking() {
+    const b = this.getBooking();
+    if (!b) return null;
+    let when;
+    try { when = this._deviceDateTimeParts(b.at); } catch (err) { when = { date: '', time: '' }; }
+    const [dd, mm, yyyy] = when.date.split('.');
+    const bookedDay = `${yyyy}-${mm}-${dd}`;
+    let day = null;
+    if (bookedDay === this._flowDayToDateStr('today')) day = 'today';
+    else if (bookedDay === this._flowDayToDateStr('tomorrow')) day = 'tomorrow';
+    return {
+      at: b.at,
+      day,
+      date: when.date,
+      time: when.time,
+      profileName: b.profile ? this._cfg(`${b.profile}Name`, `Profil ${b.profile.slice(-1)}`) : null,
+      temperature: b.temperature,
+    };
   }
 
   /**
@@ -1707,6 +1739,7 @@ class HuumDevice extends Homey.Device {
       emergencyStop: this.hasCapability('alarm_generic') ? !!this.getCapabilityValue('alarm_generic') : false,
       statusText: s.statusText || null,
       startProfile: this.hasCapability('huum_start_profile') ? this.getCapabilityValue('huum_start_profile') : 'manual',
+      booking: this._widgetBooking(),
       profiles: [1, 2, 3].map((n) => ({
         id: `profile${n}`,
         name: this._cfg(`profile${n}Name`, `Profil ${n}`),
@@ -1714,6 +1747,12 @@ class HuumDevice extends Homey.Device {
         humidity: this._cfg(`profile${n}Humidity`, null),
       })),
     };
+  }
+
+  /** Widget: cancel the pending scheduled start. */
+  async widgetCancelBooking() {
+    await this.clearBooking();
+    return this.getWidgetState();
   }
 
   /** Widget: turn on with the last settings, or off. */

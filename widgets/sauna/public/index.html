@@ -50,6 +50,14 @@
       -webkit-tap-highlight-color: transparent;
     }
     .warnline .refresh:active { opacity: .4; transform: scale(.9); }
+    .booking {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      margin: -2px 0 10px; font-size: 12px; font-weight: 600;
+    }
+    .booking .what { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .booking button.cancelbk {
+      flex: 0 0 auto; padding: 5px 10px; font-size: 11px; border-radius: 7px;
+    }
     .btns { display: flex; gap: 6px; }
     button {
       flex: 1; border: 0; border-radius: 9px; background: var(--chip); color: var(--chip-fg);
@@ -79,6 +87,7 @@
       remoteBlocked: 'Sicherheit am UKU-Panel bestätigen',
       closeDoor: 'Tür schließen, um zu starten', refresh: 'Aktualisieren',
       emergency: 'Sicherheitsabschaltung', now: 'jetzt', start: 'Start',
+      scheduled: 'Geplant', today: 'heute', tomorrow: 'morgen', cancel: 'Abbrechen',
     } : {
       loading: 'Loading …', noSauna: 'No sauna paired', failed: 'Unreachable',
       off: 'Off', heating: 'Heating', idle: 'Ready', unavailable: 'Offline',
@@ -86,6 +95,7 @@
       remoteBlocked: 'Confirm safety on the UKU panel',
       closeDoor: 'Close the door to start', refresh: 'Refresh',
       emergency: 'Safety cut-out', now: 'now', start: 'Start',
+      scheduled: 'Scheduled', today: 'today', tomorrow: 'tomorrow', cancel: 'Cancel',
     };
 
     var HomeyRef = null;
@@ -139,6 +149,14 @@
       return { txt: T.idle, cls: '' };
     }
 
+    // "📅 Geplant: heute 20:15 · Profil 2" — only the date is spelled out when
+    // the start is further away than tomorrow.
+    function bookingLabel(b) {
+      var day = b.day === 'today' ? T.today : b.day === 'tomorrow' ? T.tomorrow : b.date;
+      var what = b.profileName || (typeof b.temperature === 'number' ? b.temperature + '°' : '');
+      return '📅 ' + T.scheduled + ': ' + day + ' ' + b.time + (what ? ' · ' + what : '');
+    }
+
     function render(s) {
       if (!s || s.noSauna) { showMsg(T.noSauna); return; }
       var st = statusLabel(s);
@@ -157,6 +175,12 @@
         warnHtml = '<div class="warnline"><span>⚠ ' + esc(warnTxt) + '</span>'
           + '<button class="refresh" type="button" title="' + esc(T.refresh) + '">↻</button></div>';
       }
+
+      var bookingHtml = s.booking
+        ? '<div class="booking"><span class="what">' + esc(bookingLabel(s.booking)) + '</span>'
+          + '<button class="cancelbk" type="button" data-cancel="1"' + (busy ? ' disabled' : '') + '>'
+          + esc(T.cancel) + '</button></div>'
+        : '';
 
       var profBtns = startable.map(function (p) {
         var active = s.startProfile === p.id;
@@ -180,6 +204,7 @@
         + '<span class="sub">← ' + esc(cur) + ' ' + esc(T.now) + '</span>'
         + humTxt
         + '</div>'
+        + bookingHtml
         + '<div class="btns">'
         + '<button class="off" data-on="0"' + (s.heating && !busy ? '' : ' disabled') + '>' + esc(T.off) + '</button>'
         + profBtns
@@ -189,7 +214,8 @@
         b.addEventListener('click', function () {
           if (busy || b.disabled) return;
           if (HomeyRef.hapticFeedback) { try { HomeyRef.hapticFeedback(); } catch (e) {} }
-          if (b.dataset.on === '0') act(api('POST', '/power', { on: false }));
+          if (b.dataset.cancel === '1') act(api('POST', '/cancel-booking'));
+          else if (b.dataset.on === '0') act(api('POST', '/power', { on: false }));
           else if (b.dataset.on === '1') act(api('POST', '/power', { on: true }));
           else if (b.dataset.profile) act(api('POST', '/profile', { profile: b.dataset.profile }));
         });

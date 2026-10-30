@@ -1075,6 +1075,34 @@ async function testClearBookingResetsTheTile() {
   console.log('OK: cancelling a scheduled start resets the device tile to "not scheduled"');
 }
 
+async function testWidgetShowsAndCancelsTheScheduledStart() {
+  const device = makeDevice({ capabilities: { huum_booking_status: null, thermostat_mode: 'off', target_temperature: 80 } });
+  assert.strictEqual(device.getWidgetState().booking, null, 'no booking -> nothing for the widget to show');
+
+  // Tomorrow 20:15 in the Homey's timezone, profile 2.
+  const tomorrow = device._flowDayToDateStr('tomorrow');
+  await device.scheduleStartFromFlow('tomorrow', '20:15', 'profile2');
+  const shown = device.getWidgetState().booking;
+  assert.ok(shown, 'a pending booking shows up in the widget state');
+  assert.strictEqual(shown.day, 'tomorrow', 'a start on the next calendar day is flagged as "tomorrow"');
+  assert.strictEqual(shown.time, '20:15', 'the time is the Homey-timezone wall clock, not UTC');
+  assert.strictEqual(shown.date, tomorrow.split('-').reverse().join('.'), 'the date is rendered day-first');
+  assert.strictEqual(shown.profileName, 'Profil 2', 'the booked profile\'s name is passed along');
+
+  // Further out than tomorrow -> the widget spells out the date instead.
+  await device.setBooking({ at: device._flowWallTimeToMs(tomorrow, '20:15') + 3 * 86400000, temperature: 70 });
+  const later = device.getWidgetState().booking;
+  assert.strictEqual(later.day, null, 'three days out is neither today nor tomorrow');
+  assert.strictEqual(later.profileName, null, 'a booking without a profile has no profile name');
+  assert.strictEqual(later.temperature, 70, 'but carries its temperature');
+
+  const after = await device.widgetCancelBooking();
+  assert.strictEqual(after.booking, null, 'cancelling from the widget returns the state without the booking');
+  assert.strictEqual(device.getBooking(), null, 'and actually clears it');
+  assert.strictEqual(device.getCapabilityValue('huum_booking_status'), enLocale.labels.not_scheduled, 'and resets the device tile');
+  console.log('OK: the widget state carries the pending scheduled start (today / tomorrow / later) and can cancel it');
+}
+
 async function testStaleBookingIsDroppedNotFired() {
   const device = makeDevice({ capabilities: { thermostat_mode: 'off', target_temperature: 80 } });
   let called = false;
@@ -1270,6 +1298,7 @@ async function testReliableTargetHumidityFractionPrefersTheMirror() {
   await testBookingNotificationSubstitutesTheDeviceName();
   await testTimelineNotificationsToggleDisablesAll();
   await testClearBookingResetsTheTile();
+  await testWidgetShowsAndCancelsTheScheduledStart();
   await testStaleBookingIsDroppedNotFired();
   await testFailedScheduledStartIsRecordedWithReason();
   await testAutoOffSurvivesRestartAndClearsWhenOff();

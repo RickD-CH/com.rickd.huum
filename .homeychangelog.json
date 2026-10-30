@@ -82,5 +82,9 @@
   "0.9.3": {
     "en": "A period where the UKU reports \"heating\" but the door was never closed (so it never actually heated) is no longer counted as a sauna session.",
     "de": "Ein Zeitraum, in dem die UKU \"heizt\" meldet, die Tuer aber nie geschlossen war (also nie wirklich geheizt wurde), zaehlt nicht mehr als Sauna-Sitzung."
+  },
+  "0.9.4": {
+    "en": "The dashboard widget now shows a pending scheduled start (day, time, profile) with a Cancel button.",
+    "de": "Das Dashboard-Widget zeigt einen geplanten Start (Tag, Zeit, Profil) jetzt an, mit einem Abbrechen-Button."
   }
 }

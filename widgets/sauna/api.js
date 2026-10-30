@@ -30,6 +30,11 @@ module.exports = {
     return device(homey, query).widgetStartProfile(body && body.profile);
   },
 
+  /** POST /cancel-booking — drop the pending scheduled start. */
+  async cancelBooking({ homey, query }) {
+    return device(homey, query).widgetCancelBooking();
+  },
+
   /** POST /log {message} — surface a widget-side failure via the app's own logging. */
   async logError({ homey, body }) {
     homey.app.error('[widget]', (body && body.message) || 'unknown error');

@@ -13,6 +13,7 @@ async function run() {
     getWidgetState: () => ({ heating: false, targetTemperature: 80 }),
     widgetSetPower: async (on) => { calls.push(['power', on]); return { heating: on }; },
     widgetStartProfile: async (p) => { calls.push(['profile', p]); return { heating: true, startProfile: p }; },
+    widgetCancelBooking: async () => { calls.push(['cancel-booking']); return { booking: null }; },
   };
   const errors = [];
   const homey = {
@@ -32,6 +33,10 @@ async function run() {
   assert.strictEqual(started.startProfile, 'profile2');
   assert.deepStrictEqual(calls.pop(), ['profile', 'profile2']);
 
+  const cancelled = await api.cancelBooking({ homey, query: {} });
+  assert.strictEqual(cancelled.booking, null);
+  assert.deepStrictEqual(calls.pop(), ['cancel-booking']);
+
   await assert.rejects(
     () => api.getState({ homey: { app: { getWidgetDevice: () => null } }, query: {} }),
     /no_sauna_paired/,
@@ -41,7 +46,7 @@ async function run() {
   await api.logError({ homey, body: { message: 'boom' } });
   assert.deepStrictEqual(errors.pop(), ['[widget]', 'boom']);
 
-  console.log('OK: widget api.js state / power / profile / log handlers');
+  console.log('OK: widget api.js state / power / profile / cancel-booking / log handlers');
   console.log('\nAll widget.js tests passed.');
 }
 
