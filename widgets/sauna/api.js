@@ -30,6 +30,12 @@ module.exports = {
     return device(homey, query).widgetStartProfile(body && body.profile);
   },
 
+  /** POST /schedule {day, time, profile} — schedule a start ("today"/"tomorrow" + HH:MM). */
+  async scheduleStart({ homey, query, body }) {
+    const b = body || {};
+    return device(homey, query).widgetScheduleStart(b.day, b.time, b.profile);
+  },
+
   /** POST /cancel-booking — drop the pending scheduled start. */
   async cancelBooking({ homey, query }) {
     return device(homey, query).widgetCancelBooking();

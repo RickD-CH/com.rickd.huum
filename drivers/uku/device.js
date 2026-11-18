@@ -405,6 +405,29 @@ class HuumDevice extends Homey.Device {
     return { date: `${d.day}.${d.month}.${d.year}`, time };
   }
 
+  /** `{ date: 'YYYY-MM-DD', time: 'HH:MM' }` (24h) of `ms` on the Homey's own wall clock. */
+  _wallClock(ms) {
+    let timeZone;
+    try { timeZone = this.homey.clock.getTimezone(); } catch (err) { /* clock manager unavailable — fall through */ }
+    const iso = new Date(ms + HuumDevice._tzOffsetMs(new Date(ms), timeZone)).toISOString();
+    return { date: iso.slice(0, 10), time: iso.slice(11, 16) };
+  }
+
+  /**
+   * Starting values for the widget's schedule form: the next quarter hour at
+   * least an hour out, as "today"/"tomorrow" plus a 24h time (what an
+   * <input type="time"> wants), on the Homey's own clock.
+   */
+  _widgetScheduleDefaults() {
+    const quarter = 15 * 60 * 1000;
+    const at = Math.ceil((Date.now() + 60 * 60 * 1000) / quarter) * quarter;
+    const wall = this._wallClock(at);
+    return {
+      suggestedDay: wall.date === this._flowDayToDateStr('today') ? 'today' : 'tomorrow',
+      suggestedTime: wall.time,
+    };
+  }
+
   /**
    * The pending scheduled start as the widget wants it: the day as
    * 'today' / 'tomorrow' (so the widget can word it in its own language) or
@@ -582,12 +605,12 @@ class HuumDevice extends Homey.Device {
       }
 
       if (b.profile && typeof this._cfg(`${b.profile}Temperature`, null) === 'number') {
-        await this.startWithProfile(b.profile);
+        await this.startWithProfile(b.profile, { clampHumidity: true });
       } else {
         const temp = typeof b.temperature === 'number'
           ? b.temperature : (this.getCapabilityValue('target_temperature') || 80);
         const hum = typeof b.humidity === 'number' ? b.humidity : this._getTargetHumidityPercent();
-        await this._start(temp, hum);
+        await this._start(temp, hum, { clampHumidity: true });
         await this._maybeWaterCheckReminder();
       }
       await this._setThermostatMode('heat');
@@ -932,7 +955,14 @@ class HuumDevice extends Homey.Device {
     }).catch((err) => this.error('Failed to create water-check reminder:', err.message));
   }
 
-  async _start(temperature, humidityPercent) {
+  /**
+   * `clampHumidity`: for an unattended (scheduled) start. There is nobody to
+   * read a "too humid" error then, and refusing to start is worse than
+   * starting with the steamer's real ceiling — which is what the UKU enforces
+   * anyway, and which rises above the target temperature once the cabin is
+   * still warm from an earlier session (see HuumApi.turnOn()).
+   */
+  async _start(temperature, humidityPercent, { clampHumidity = false } = {}) {
     // The UKU can require someone to confirm safety on the physical panel
     // before it accepts a remote start (status.remoteSafetyState). The
     // official app blocks the start with the same message. Re-check with a
@@ -953,7 +983,12 @@ class HuumDevice extends Homey.Device {
       }
     }
     try {
-      const args = { temperature, humidity: humidityPercent };
+      let humidity = humidityPercent;
+      if (clampHumidity && typeof humidity === 'number' && !Number.isNaN(humidity)) {
+        const cabin = last && typeof last.temperature === 'number' ? Math.round(last.temperature) : -Infinity;
+        humidity = Math.min(humidity, getMaxHumidityForTemperature(Math.max(Math.round(temperature), cabin)));
+      }
+      const args = { temperature, humidity };
       if (last && typeof last.temperature === 'number') args.currentTemperature = last.temperature;
       if (!this._sensorPresent('door', this._lastStatus)) {
         // No door contact wired up → the API would otherwise report the
@@ -1479,7 +1514,7 @@ class HuumDevice extends Homey.Device {
   }
 
   /** Used by the "start_with_profile" Flow action card and the app page. */
-  async startWithProfile(profileId) {
+  async startWithProfile(profileId, startOptions) {
     const temperature = this._cfg(`${profileId}Temperature`, null);
     if (typeof temperature !== 'number') {
       throw new Error(this.homey.__('errors.profile_not_configured'));
@@ -1489,7 +1524,7 @@ class HuumDevice extends Homey.Device {
     const humidity = this.hasCapability('target_humidity')
       ? this._cfg(`${profileId}Humidity`, undefined)
       : undefined;
-    await this._start(temperature, humidity);
+    await this._start(temperature, humidity, startOptions);
     if (wasOff) await this._maybeWaterCheckReminder();
     await this._syncStatus().catch((err) => this.error('Post-action status refresh failed:', err.message));
   }
@@ -1740,6 +1775,7 @@ class HuumDevice extends Homey.Device {
       statusText: s.statusText || null,
       startProfile: this.hasCapability('huum_start_profile') ? this.getCapabilityValue('huum_start_profile') : 'manual',
       booking: this._widgetBooking(),
+      schedule: this._widgetScheduleDefaults(),
       profiles: [1, 2, 3].map((n) => ({
         id: `profile${n}`,
         name: this._cfg(`profile${n}Name`, `Profil ${n}`),
@@ -1747,6 +1783,20 @@ class HuumDevice extends Homey.Device {
         humidity: this._cfg(`profile${n}Humidity`, null),
       })),
     };
+  }
+
+  /**
+   * Widget: schedule a start — for people who can use the dashboard but not
+   * the app's settings page (e.g. a Homey guest). Same one-per-device booking
+   * as everywhere else; `profileId` 'manual' (or anything else) starts with
+   * whatever the sliders hold at that time.
+   */
+  async widgetScheduleStart(day, time, profileId) {
+    if (day !== 'today' && day !== 'tomorrow') {
+      throw new Error(this.homey.__('errors.booking_bad_datetime'));
+    }
+    await this.scheduleStartFromFlow(day, time, profileId);
+    return this.getWidgetState();
   }
 
   /** Widget: cancel the pending scheduled start. */

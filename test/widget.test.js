@@ -14,6 +14,7 @@ async function run() {
     widgetSetPower: async (on) => { calls.push(['power', on]); return { heating: on }; },
     widgetStartProfile: async (p) => { calls.push(['profile', p]); return { heating: true, startProfile: p }; },
     widgetCancelBooking: async () => { calls.push(['cancel-booking']); return { booking: null }; },
+    widgetScheduleStart: async (d, t, p) => { calls.push(['schedule', d, t, p]); return { booking: { day: d, time: t } }; },
   };
   const errors = [];
   const homey = {
@@ -33,6 +34,12 @@ async function run() {
   assert.strictEqual(started.startProfile, 'profile2');
   assert.deepStrictEqual(calls.pop(), ['profile', 'profile2']);
 
+  const scheduled = await api.scheduleStart({ homey, query: {}, body: { day: 'tomorrow', time: '19:45', profile: 'profile2' } });
+  assert.deepStrictEqual(scheduled.booking, { day: 'tomorrow', time: '19:45' });
+  assert.deepStrictEqual(calls.pop(), ['schedule', 'tomorrow', '19:45', 'profile2']);
+  await api.scheduleStart({ homey, query: {} });
+  assert.deepStrictEqual(calls.pop(), ['schedule', undefined, undefined, undefined], 'a missing body reaches the device as undefined, which it then rejects');
+
   const cancelled = await api.cancelBooking({ homey, query: {} });
   assert.strictEqual(cancelled.booking, null);
   assert.deepStrictEqual(calls.pop(), ['cancel-booking']);
@@ -46,7 +53,7 @@ async function run() {
   await api.logError({ homey, body: { message: 'boom' } });
   assert.deepStrictEqual(errors.pop(), ['[widget]', 'boom']);
 
-  console.log('OK: widget api.js state / power / profile / cancel-booking / log handlers');
+  console.log('OK: widget api.js state / power / profile / schedule / cancel-booking / log handlers');
   console.log('\nAll widget.js tests passed.');
 }
 

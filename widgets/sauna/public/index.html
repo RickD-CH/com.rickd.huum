@@ -58,6 +58,18 @@
     .booking button.cancelbk {
       flex: 0 0 auto; padding: 5px 10px; font-size: 11px; border-radius: 7px;
     }
+    .planrow { margin-top: 6px; }
+    .planrow button.planopen {
+      flex: none; background: none; color: var(--muted); padding: 6px 2px;
+      font-size: 12px; font-weight: 600; text-align: left;
+    }
+    .plan { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .plan .fields, .plan .planbtns { display: flex; gap: 6px; flex-wrap: wrap; }
+    .plan select, .plan input {
+      flex: 1 1 84px; min-width: 0; border: 0; border-radius: 9px; background: var(--chip);
+      color: var(--chip-fg); font: inherit; font-size: 12px; font-weight: 600; padding: 9px 8px;
+    }
+    .plan .planerr { color: var(--err); font-size: 12px; }
     .btns { display: flex; gap: 6px; }
     button {
       flex: 1; border: 0; border-radius: 9px; background: var(--chip); color: var(--chip-fg);
@@ -88,6 +100,9 @@
       closeDoor: 'Tür schließen, um zu starten', refresh: 'Aktualisieren',
       emergency: 'Sicherheitsabschaltung', now: 'jetzt', start: 'Start',
       scheduled: 'Geplant', today: 'heute', tomorrow: 'morgen', cancel: 'Abbrechen',
+      plan: 'Start planen', planSave: 'Einplanen', planToday: 'Heute', planTomorrow: 'Morgen',
+      planManual: 'Aktuelle Einstellungen', planBadTime: 'Bitte eine Uhrzeit wählen',
+      planFailed: 'Planen nicht möglich',
     } : {
       loading: 'Loading …', noSauna: 'No sauna paired', failed: 'Unreachable',
       off: 'Off', heating: 'Heating', idle: 'Ready', unavailable: 'Offline',
@@ -96,11 +111,18 @@
       closeDoor: 'Close the door to start', refresh: 'Refresh',
       emergency: 'Safety cut-out', now: 'now', start: 'Start',
       scheduled: 'Scheduled', today: 'today', tomorrow: 'tomorrow', cancel: 'Cancel',
+      plan: 'Schedule a start', planSave: 'Schedule', planToday: 'Today', planTomorrow: 'Tomorrow',
+      planManual: 'Current settings', planBadTime: 'Please pick a time',
+      planFailed: 'Could not schedule',
     };
 
     var HomeyRef = null;
     var busy = false;
     var lastJson = null;
+    var lastState = null;
+    // The schedule form's own state, kept here (not read back from the DOM)
+    // because the widget re-renders whenever the sauna's state changes.
+    var plan = { open: false, day: 'today', time: '', profile: 'manual', err: '' };
 
     function esc(s) {
       return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -157,11 +179,65 @@
       return '📅 ' + T.scheduled + ': ' + day + ' ' + b.time + (what ? ' · ' + what : '');
     }
 
+    function startableProfiles(s) {
+      return s.profiles.filter(function (p) { return typeof p.temperature === 'number'; });
+    }
+
+    function openPlan(s) {
+      var sch = s.schedule || {};
+      var ids = startableProfiles(s).map(function (p) { return p.id; });
+      plan.open = true;
+      plan.err = '';
+      plan.day = sch.suggestedDay || 'today';
+      plan.time = sch.suggestedTime || '';
+      plan.profile = ids.indexOf(s.startProfile) >= 0 ? s.startProfile : (ids[0] || 'manual');
+    }
+
+    function planFormHtml(s) {
+      var startable = startableProfiles(s);
+      var profiles = startable.length ? startable : [{ id: 'manual', name: T.planManual }];
+      function opt(value, label, current) {
+        return '<option value="' + esc(value) + '"' + (current === value ? ' selected' : '') + '>' + esc(label) + '</option>';
+      }
+      return '<div class="plan"><div class="fields">'
+        + '<select data-plan-field="day">' + opt('today', T.planToday, plan.day) + opt('tomorrow', T.planTomorrow, plan.day) + '</select>'
+        + '<input type="time" data-plan-field="time" value="' + esc(plan.time) + '">'
+        + '<select data-plan-field="profile">'
+        + profiles.map(function (p) { return opt(p.id, p.name, plan.profile); }).join('') + '</select>'
+        + '</div>'
+        + (plan.err ? '<div class="planerr">' + esc(plan.err) + '</div>' : '')
+        + '<div class="planbtns">'
+        + '<button class="on" type="button" data-plan="save">' + esc(T.planSave) + '</button>'
+        + '<button type="button" data-plan="close">' + esc(T.cancel) + '</button>'
+        + '</div></div>';
+    }
+
+    function savePlan() {
+      if (busy) return;
+      if (!/^\d{1,2}:\d{2}$/.test(plan.time || '')) {
+        plan.err = T.planBadTime; render(lastState); return;
+      }
+      busy = true;
+      plan.err = '';
+      Array.prototype.forEach.call(document.querySelectorAll('button'), function (b) { b.disabled = true; });
+      api('POST', '/schedule', { day: plan.day, time: plan.time, profile: plan.profile }).then(function (st) {
+        busy = false; plan.open = false; lastJson = JSON.stringify(st); render(st);
+      }).catch(function (err) {
+        // The server's own message ("pick a time in the future", ...) is for the
+        // person at the form, not an error to log.
+        busy = false;
+        plan.err = String((err && (err.message || err.error)) || T.planFailed);
+        render(lastState);
+      });
+    }
+
     function render(s) {
       if (!s || s.noSauna) { showMsg(T.noSauna); return; }
+      lastState = s;
+      if (s.booking) plan.open = false;
       var st = statusLabel(s);
       var canStart = s.available && !s.doorOpen && !s.remoteBlocked && !s.emergencyStop;
-      var startable = s.profiles.filter(function (p) { return typeof p.temperature === 'number'; });
+      var startable = startableProfiles(s);
 
       var timeTxt = s.heating ? fmtTime(s.timeRemaining) : '';
       var cur = s.measureTemperature == null ? '–' : Math.round(s.measureTemperature) + '°';
@@ -208,9 +284,26 @@
         + '<div class="btns">'
         + '<button class="off" data-on="0"' + (s.heating && !busy ? '' : ' disabled') + '>' + esc(T.off) + '</button>'
         + profBtns
-        + '</div>';
+        + '</div>'
+        + (s.booking ? '' : plan.open ? planFormHtml(s)
+          : '<div class="planrow"><button class="planopen" type="button" data-plan="open">📅 ' + esc(T.plan) + '</button></div>');
 
-      Array.prototype.forEach.call(document.querySelectorAll('button:not(.refresh)'), function (b) {
+      Array.prototype.forEach.call(document.querySelectorAll('[data-plan-field]'), function (el) {
+        var sync = function () { plan[el.dataset.planField] = el.value; };
+        el.addEventListener('input', sync);
+        el.addEventListener('change', sync);
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('button[data-plan]'), function (b) {
+        b.addEventListener('click', function () {
+          if (b.disabled) return;
+          if (HomeyRef.hapticFeedback) { try { HomeyRef.hapticFeedback(); } catch (e) {} }
+          if (b.dataset.plan === 'open') { openPlan(s); render(s); }
+          else if (b.dataset.plan === 'close') { plan.open = false; plan.err = ''; render(lastState); }
+          else if (b.dataset.plan === 'save') savePlan();
+        });
+      });
+
+      Array.prototype.forEach.call(document.querySelectorAll('button:not(.refresh):not([data-plan])'), function (b) {
         b.addEventListener('click', function () {
           if (busy || b.disabled) return;
           if (HomeyRef.hapticFeedback) { try { HomeyRef.hapticFeedback(); } catch (e) {} }
@@ -252,7 +345,11 @@
       return api('GET', '/state').then(function (s) {
         var j = JSON.stringify(s);
         if (j === lastJson) return;
-        lastJson = j; render(s);
+        lastJson = j;
+        // Don't pull the schedule form out from under someone mid-edit; the
+        // newer state is shown as soon as the form closes.
+        if (plan.open && !(s && s.booking)) { lastState = s; return; }
+        render(s);
       }).catch(function (err) {
         logErr(err);
         var m = String((err && (err.message || err.error)) || err);

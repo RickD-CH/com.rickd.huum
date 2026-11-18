@@ -86,5 +86,9 @@
   "0.9.4": {
     "en": "The dashboard widget now shows a pending scheduled start (day, time, profile) with a Cancel button.",
     "de": "Das Dashboard-Widget zeigt einen geplanten Start (Tag, Zeit, Profil) jetzt an, mit einem Abbrechen-Button."
+  },
+  "0.9.5": {
+    "en": "The dashboard widget can now schedule a start too (for guests without access to the app settings), and a scheduled start no longer fails when the cabin is still warm - it starts at the highest humidity allowed instead.",
+    "de": "Das Dashboard-Widget kann jetzt auch einen Start planen (fuer Gaeste ohne Zugriff auf die App-Einstellungen), und ein geplanter Start scheitert nicht mehr an einer noch warmen Kabine - er startet stattdessen mit der hoechsten erlaubten Feuchte."
   }
 }

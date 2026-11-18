@@ -1103,6 +1103,87 @@ async function testWidgetShowsAndCancelsTheScheduledStart() {
   console.log('OK: the widget state carries the pending scheduled start (today / tomorrow / later) and can cancel it');
 }
 
+async function testWidgetSchedulesAStartOnTheHomeyClock() {
+  const device = makeDevice({ capabilities: { huum_booking_status: null, thermostat_mode: 'off', target_temperature: 80 } });
+
+  const defaults = device.getWidgetState().schedule;
+  assert.ok(['today', 'tomorrow'].includes(defaults.suggestedDay), 'the form starts on today or tomorrow');
+  assert.ok(/^\d{2}:\d{2}$/.test(defaults.suggestedTime), 'and a 24h HH:MM time (what <input type="time"> takes)');
+  const suggestedAt = device._flowWallTimeToMs(device._flowDayToDateStr(defaults.suggestedDay), defaults.suggestedTime);
+  const ahead = suggestedAt - Date.now();
+  assert.ok(ahead >= 45 * 60 * 1000 && ahead <= 75 * 60 * 1000, `suggested start is about an hour out (was ${Math.round(ahead / 60000)} min)`);
+
+  device.__store.profile2Temperature = 50;
+  device.__store.profile2Humidity = 55;
+  const state = await device.widgetScheduleStart('tomorrow', '19:45', 'profile2');
+  assert.strictEqual(state.booking.profileName, device._cfg('profile2Name', 'Profil 2'), 'the widget gets the booking back right away');
+  assert.strictEqual(state.booking.time, '19:45');
+  assert.strictEqual(
+    device.getBooking().at,
+    device._flowWallTimeToMs(device._flowDayToDateStr('tomorrow'), '19:45'),
+    'stored as "tomorrow 19:45" in the Homey timezone',
+  );
+  assert.strictEqual(device.getBooking().profile, 'profile2');
+
+  await assert.rejects(() => device.widgetScheduleStart('today', '00:00', 'profile2'), /future/i, 'a time that has already passed is refused');
+  await assert.rejects(() => device.widgetScheduleStart('yesterday', '19:45', 'profile2'), (err) => err.message === enLocale.errors.booking_bad_datetime, 'only today/tomorrow');
+  await assert.rejects(() => device.widgetScheduleStart('today', 'soon', 'profile2'), (err) => err.message === enLocale.errors.booking_bad_datetime, 'an unreadable time is refused');
+
+  await device.widgetScheduleStart('tomorrow', '07:00', 'manual');
+  assert.strictEqual(device.getBooking().profile, null, '"manual" books a start with whatever the sliders hold');
+  console.log('OK: the widget can schedule a start (today/tomorrow + time + profile) on the Homey clock, refusing the past and nonsense');
+}
+
+async function testScheduledProfileStartPassesTemperatureAndHumidity() {
+  const make = (cabin) => {
+    const device = makeDevice({
+      capabilities: { thermostat_mode: 'off', target_temperature: 80, target_humidity: 0.2, huum_target_humidity: 20 },
+    });
+    device.__store.profile2Temperature = 50;
+    device.__store.profile2Humidity = 55;
+    device._lastStatus = { temperature: cabin, remoteSafetyState: 'safe', doorClosed: true };
+    const sent = [];
+    device.api = {
+      turnOn: async (args) => { sent.push(args); return {}; },
+      getStatus: async () => { throw new Error('x'); },
+    };
+    return { device, sent };
+  };
+
+  // Cold cabin: exactly the profile's values go to the heater, whatever the
+  // sliders hold (80 °C / 20 % here).
+  let { device, sent } = make(24);
+  device.__store.booking = { at: Date.now() - 1000, profile: 'profile2', temperature: null, humidity: null };
+  await device._fireBooking();
+  assert.deepStrictEqual(sent, [{ temperature: 50, humidity: 55, currentTemperature: 24 }], 'profile 2 = 50 °C / 55 %, not the slider values');
+  assert.strictEqual(device.getStoreValue('sessionHistory'), null, 'and no failure was recorded');
+
+  // Cabin still warm from an earlier session: 55 % is over the 45 % ceiling
+  // for 52 °C. An unattended start must go ahead at the ceiling instead of
+  // failing outright...
+  ({ device, sent } = make(52));
+  device.__store.booking = { at: Date.now() - 1000, profile: 'profile2', temperature: null, humidity: null };
+  await device._fireBooking();
+  assert.deepStrictEqual(sent, [{ temperature: 50, humidity: 45, currentTemperature: 52 }], 'humidity is clamped to what the warm cabin allows');
+  assert.strictEqual(device.getStoreValue('sessionHistory'), null, 'the start is not recorded as failed');
+
+  // ...a manual booking likewise, and a booking above 90 °C starts dry.
+  ({ device, sent } = make(24));
+  device.__store.booking = { at: Date.now() - 1000, profile: null, temperature: 50, humidity: 80 };
+  await device._fireBooking();
+  assert.strictEqual(sent[0].humidity, 55, 'a manual booking is clamped to the ceiling for its temperature too');
+  ({ device, sent } = make(95));
+  device.__store.booking = { at: Date.now() - 1000, profile: 'profile2', temperature: null, humidity: null };
+  await device._fireBooking();
+  assert.strictEqual(sent[0].humidity, 0, 'a scorching cabin allows no steam, so it starts dry rather than not at all');
+
+  // Not clamped for an interactive start — there the error is for a person to read.
+  ({ device, sent } = make(52));
+  await device.startWithProfile('profile2');
+  assert.strictEqual(sent[0].humidity, 55, 'a start from the widget / Flow still passes the profile value through untouched');
+  console.log('OK: a scheduled start passes the profile\'s temperature/humidity, clamping humidity only for an unattended start');
+}
+
 async function testStaleBookingIsDroppedNotFired() {
   const device = makeDevice({ capabilities: { thermostat_mode: 'off', target_temperature: 80 } });
   let called = false;
@@ -1299,6 +1380,8 @@ async function testReliableTargetHumidityFractionPrefersTheMirror() {
   await testTimelineNotificationsToggleDisablesAll();
   await testClearBookingResetsTheTile();
   await testWidgetShowsAndCancelsTheScheduledStart();
+  await testWidgetSchedulesAStartOnTheHomeyClock();
+  await testScheduledProfileStartPassesTemperatureAndHumidity();
   await testStaleBookingIsDroppedNotFired();
   await testFailedScheduledStartIsRecordedWithReason();
   await testAutoOffSurvivesRestartAndClearsWhenOff();
