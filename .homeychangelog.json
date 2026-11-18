@@ -90,5 +90,9 @@
   "0.9.5": {
     "en": "The widget can now schedule a start, and the humidity of a start is checked afterwards and set again if the sauna did not take it.",
     "de": "Das Widget kann jetzt einen Start planen, und die Feuchte eines Starts wird danach geprueft und bei Bedarf neu gesetzt."
+  },
+  "0.9.6": {
+    "en": "Fixed the humidity slider turning every value into 0 % or 100 % (a rounding problem).",
+    "de": "Der Feuchte-Regler machte aus jedem Wert 0 % oder 100 % (ein Rundungsproblem) - behoben."
   }
 }

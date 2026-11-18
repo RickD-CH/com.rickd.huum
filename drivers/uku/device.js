@@ -38,7 +38,7 @@ const DEFAULT_PROFILES = {
 // exactly valid under the intended 0.05 step snapped to 0 once Homey
 // re-validated it against a step that had quietly reverted to its default.
 const TARGET_HUMIDITY_OPTIONS = {
-  min: 0, max: 0.9, step: 0.05, decimals: 0, uiComponent: 'slider',
+  min: 0, max: 0.9, step: 0.05, decimals: 2, uiComponent: 'slider',
   title: { en: 'Target humidity', de: 'Zielfeuchte' },
 };
 const TARGET_TEMPERATURE_OPTIONS = {
@@ -1709,7 +1709,7 @@ class HuumDevice extends Homey.Device {
    * steamer duty cycle here rather than an independent sensor reading.
    */
   async _applyHumidityTileFix() {
-    if (this.getStoreValue('humidityTileFixApplied4') || typeof this.setCapabilityOptions !== 'function') return;
+    if (this.getStoreValue('humidityTileFixApplied5') || typeof this.setCapabilityOptions !== 'function') return;
     try {
       // A one-off, value-independent options push — safe, unlike doing this
       // together with a value clamp (see _applyHumidityLimit).
@@ -1719,7 +1719,7 @@ class HuumDevice extends Homey.Device {
       if (this.hasCapability('measure_humidity')) {
         await this.setCapabilityOptions('measure_humidity', MEASURE_HUMIDITY_OPTIONS);
       }
-      await this.setStoreValue('humidityTileFixApplied4', true).catch(this.error);
+      await this.setStoreValue('humidityTileFixApplied5', true).catch(this.error);
     } catch (err) {
       this.error('Could not apply humidity tile fix:', err.message);
     }
@@ -1804,6 +1804,9 @@ class HuumDevice extends Homey.Device {
       info: this._buildInfoModel(s),
       stats: this._statsModel(),
       config: this.getConfig(),
+      // The last exchanges with HUUM exactly as received — the only way to see
+      // what the UKU really answered, as an app's log can't be read on a Homey.
+      trace: (this.api && this.api.trace) || [],
     };
   }
 
