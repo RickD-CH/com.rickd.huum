@@ -88,7 +88,7 @@
     "de": "Das Dashboard-Widget zeigt einen geplanten Start (Tag, Zeit, Profil) jetzt an, mit einem Abbrechen-Button."
   },
   "0.9.5": {
-    "en": "The dashboard widget can now schedule a start too (for guests without access to the app settings), and a scheduled start no longer fails when the cabin is still warm - it starts at the highest humidity allowed instead.",
-    "de": "Das Dashboard-Widget kann jetzt auch einen Start planen (fuer Gaeste ohne Zugriff auf die App-Einstellungen), und ein geplanter Start scheitert nicht mehr an einer noch warmen Kabine - er startet stattdessen mit der hoechsten erlaubten Feuchte."
+    "en": "The widget can now schedule a start, and the humidity of a start is checked afterwards and set again if the sauna did not take it.",
+    "de": "Das Widget kann jetzt einen Start planen, und die Feuchte eines Starts wird danach geprueft und bei Bedarf neu gesetzt."
   }
 }

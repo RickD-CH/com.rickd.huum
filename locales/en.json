@@ -21,7 +21,9 @@
     "water_alarm_body": "No water in steamer, steamer system not allowed to start",
     "water_check_reminder": "__name__: check the steamer water before the sauna heats up.",
     "booking_started": "__name__: the scheduled sauna session has started.",
-    "booking_failed": "__name__: the scheduled start failed — __error__"
+    "booking_failed": "__name__: the scheduled start failed — __error__",
+    "humidity_reapplied": "__name__: after the start the sauna reported __reported__ % target humidity, so it was set again to __expected__ %.",
+    "humidity_not_applied": "__name__: the sauna still reports __reported__ % target humidity instead of __expected__ % — please check it on the UKU panel."
   },
   "labels": {
     "yes": "Yes",

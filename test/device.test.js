@@ -1184,6 +1184,103 @@ async function testScheduledProfileStartPassesTemperatureAndHumidity() {
   console.log('OK: a scheduled start passes the profile\'s temperature/humidity, clamping humidity only for an unattended start');
 }
 
+async function testHumidityIsVerifiedAfterAStartAndSentAgainIfItDidNotStick() {
+  const make = () => {
+    const device = makeDevice({
+      capabilities: { thermostat_mode: 'off', target_temperature: 50, target_humidity: 0.55, huum_target_humidity: 55 },
+    });
+    device._lastStatus = { temperature: 24, remoteSafetyState: 'safe', doorClosed: true };
+    const sent = [];
+    device.api = {
+      turnOn: async (args) => { sent.push(args); return {}; },
+      getStatus: async () => { throw new Error('x'); },
+    };
+    return { device, sent };
+  };
+  const heating = (targetHumidity, targetTemperature = 50) => ({
+    isHeating: true, temperature: 30, targetTemperature, targetHumidity, doorClosed: true,
+  });
+  const age = (device, ms) => { device._pendingHumidityCheck.startedAt -= ms; };
+
+  // The UKU keeps reporting 0 % after a 55 % start: it is sent again, once the
+  // UKU has had a moment to report, and the owner is told.
+  let { device, sent } = make();
+  await device._start(50, 55);
+  assert.strictEqual(sent.length, 1, 'the start itself');
+  assert.deepStrictEqual(
+    { t: device._pendingHumidityCheck.temperature, h: device._pendingHumidityCheck.humidity },
+    { t: 50, h: 55 },
+    'the start remembers what it asked for',
+  );
+  await device._verifyHumidityAfterStart(heating(0));
+  assert.strictEqual(sent.length, 1, 'too soon after the start to call it wrong — the UKU may just not have reported yet');
+  age(device, 30000);
+  await device._verifyHumidityAfterStart(heating(0));
+  assert.deepStrictEqual(
+    sent[1],
+    { temperature: 50, humidity: 55, currentTemperature: 30, safetyOverride: true },
+    'a heating sauna reporting 0 % gets the start sent again with the wanted humidity',
+  );
+  assert.strictEqual(device.homey.__notifications.length, 1, 'and the owner is told once');
+  assert.ok(/0 %/.test(device.homey.__notifications[0].excerpt) && /55 %/.test(device.homey.__notifications[0].excerpt), 'saying what was reported and what was set');
+  await device._verifyHumidityAfterStart(heating(55));
+  assert.strictEqual(device._pendingHumidityCheck, null, 'once the UKU reports the wanted value the check ends');
+  await device._verifyHumidityAfterStart(heating(0));
+  assert.strictEqual(sent.length, 2, 'and a later change is left alone');
+
+  // It never gets there: two retries, then a final heads-up, never a third.
+  ({ device, sent } = make());
+  await device._start(50, 55);
+  age(device, 30000);
+  await device._verifyHumidityAfterStart(heating(0));
+  await device._verifyHumidityAfterStart(heating(0));
+  await device._verifyHumidityAfterStart(heating(0));
+  await device._verifyHumidityAfterStart(heating(0));
+  assert.strictEqual(sent.length, 3, 'the start plus exactly two retries');
+  assert.strictEqual(device._pendingHumidityCheck, null, 'then it gives up');
+  assert.strictEqual(device.homey.__notifications.length, 2, 'one "set again" note and one "still wrong" note');
+
+  // Someone changed the temperature meanwhile: not ours to fight.
+  ({ device, sent } = make());
+  await device._start(50, 55);
+  age(device, 30000);
+  await device._verifyHumidityAfterStart(heating(0, 70));
+  assert.strictEqual(sent.length, 1, 'a different target temperature means a deliberate change — no resend');
+  assert.strictEqual(device._pendingHumidityCheck, null);
+
+  // Stopped after it was heating: nothing left to check.
+  ({ device, sent } = make());
+  await device._start(50, 55);
+  await device._verifyHumidityAfterStart(heating(55));
+  ({ device, sent } = make());
+  await device._start(50, 55);
+  await device._verifyHumidityAfterStart({ isHeating: false });
+  assert.ok(device._pendingHumidityCheck, 'not heating yet: the start may simply not have registered');
+  await device._verifyHumidityAfterStart(heating(null));
+  assert.ok(device._pendingHumidityCheck, 'a status without a humidity reading proves nothing either way');
+  await device._verifyHumidityAfterStart({ isHeating: false });
+  assert.strictEqual(device._pendingHumidityCheck, null, 'but heating and then stopped ends the check');
+
+  // No humidity asked for, or no steamer: nothing to verify.
+  ({ device } = make());
+  await device._start(50, 0);
+  assert.strictEqual(device._pendingHumidityCheck, null, 'a dry start has nothing to compare');
+  const noSteamer = makeDevice({ capabilities: { thermostat_mode: 'off', target_temperature: 50 } });
+  noSteamer._lastStatus = { temperature: 24, remoteSafetyState: 'safe', doorClosed: true };
+  noSteamer.api = { turnOn: async () => ({}), getStatus: async () => { throw new Error('x'); } };
+  await noSteamer._start(50, undefined);
+  assert.strictEqual(noSteamer._pendingHumidityCheck, null, 'and a sauna without a steamer is never checked');
+
+  // The check runs from the normal status path.
+  ({ device, sent } = make());
+  await device._start(50, 55);
+  age(device, 30000);
+  await device._applyStatus(heating(0));
+  assert.strictEqual(sent.length, 2, 'the regular status poll is what triggers it');
+
+  console.log('OK: after a start the humidity is verified and sent again (max twice) when the UKU did not take it, without fighting later changes');
+}
+
 async function testStaleBookingIsDroppedNotFired() {
   const device = makeDevice({ capabilities: { thermostat_mode: 'off', target_temperature: 80 } });
   let called = false;
@@ -1382,6 +1479,7 @@ async function testReliableTargetHumidityFractionPrefersTheMirror() {
   await testWidgetShowsAndCancelsTheScheduledStart();
   await testWidgetSchedulesAStartOnTheHomeyClock();
   await testScheduledProfileStartPassesTemperatureAndHumidity();
+  await testHumidityIsVerifiedAfterAStartAndSentAgainIfItDidNotStick();
   await testStaleBookingIsDroppedNotFired();
   await testFailedScheduledStartIsRecordedWithReason();
   await testAutoOffSurvivesRestartAndClearsWhenOff();

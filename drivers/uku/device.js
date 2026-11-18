@@ -16,6 +16,11 @@ const DEFAULT_HEATER_POWER_KW = 6;
 // a real power meter / Flow feeds measure_power.
 const DEFAULT_DUTY_CYCLE = 60;
 const HEATUP_MARGIN_C = 5;
+// After the app starts the sauna with a humidity, it checks that the UKU
+// really took that value (live: sessions started at 50 °C kept reporting 0 %).
+const HUMIDITY_CHECK_WINDOW_MS = 10 * 60 * 1000; // stop checking after this long
+const HUMIDITY_CHECK_SETTLE_MS = 20 * 1000; // give the UKU this long to report a new value
+const HUMIDITY_CHECK_MAX_RETRIES = 2;
 
 // Seeded on first run / on "reset to defaults". Humidity is ignored on
 // saunas without a steamer. The "Feucht" preset sits at the steamer's max
@@ -996,6 +1001,7 @@ class HuumDevice extends Homey.Device {
         args.safetyOverride = true;
       }
       await this._withAuthHandling(this.api.turnOn(args));
+      this._expectHumidityAfterStart(temperature, humidity);
     } catch (err) {
       if (err instanceof HuumSafetyError) {
         const doorErr = new Error(this.homey.__('errors.door_open'));
@@ -1012,6 +1018,76 @@ class HuumDevice extends Homey.Device {
       // this is just the subset worth a translated, friendlier message.
       throw err;
     }
+  }
+
+  /**
+   * Remember what a start just asked the UKU for, so the next status polls can
+   * confirm the humidity really arrived (_verifyHumidityAfterStart). 0 / no
+   * humidity isn't checked: the API omits the field then, so there is nothing
+   * to compare against.
+   */
+  _expectHumidityAfterStart(temperature, humidityPercent) {
+    const humidity = typeof humidityPercent === 'number' ? Math.round(humidityPercent) : 0;
+    this._pendingHumidityCheck = humidity > 0 && this.hasCapability('target_humidity')
+      ? {
+        temperature: Math.round(temperature), humidity, startedAt: Date.now(), attempts: 0, seenHeating: false,
+      }
+      : null;
+  }
+
+  /**
+   * Runs on every status while a check is pending. If the UKU is heating but
+   * reports a different target humidity than the start asked for, send the
+   * start again (/start doubles as "update"), a couple of times at most.
+   * Quietly drops the check when it can no longer mean anything: the window
+   * ran out, the session was stopped, or someone changed the temperature in
+   * the meantime (a deliberate change must not be fought).
+   */
+  async _verifyHumidityAfterStart(status) {
+    const pending = this._pendingHumidityCheck;
+    if (!pending) return;
+    const age = Date.now() - pending.startedAt;
+    if (age > HUMIDITY_CHECK_WINDOW_MS) { this._pendingHumidityCheck = null; return; }
+    if (!status.isHeating) {
+      if (pending.seenHeating) this._pendingHumidityCheck = null;
+      return;
+    }
+    pending.seenHeating = true;
+    if (typeof status.targetHumidity !== 'number') return;
+    if (typeof status.targetTemperature === 'number' && Math.round(status.targetTemperature) !== pending.temperature) {
+      this._pendingHumidityCheck = null;
+      return;
+    }
+    if (Math.round(status.targetHumidity) === pending.humidity) { this._pendingHumidityCheck = null; return; }
+    if (age < HUMIDITY_CHECK_SETTLE_MS) return;
+
+    const vars = { name: this.getName(), reported: Math.round(status.targetHumidity), expected: pending.humidity };
+    if (pending.attempts >= HUMIDITY_CHECK_MAX_RETRIES) {
+      this._pendingHumidityCheck = null;
+      this.error(`Humidity still ${vars.reported}% after ${pending.attempts} retries, wanted ${vars.expected}%`);
+      await this._notifyTimeline('notifications.humidity_not_applied', vars);
+      return;
+    }
+    pending.attempts += 1;
+    this.log(`Humidity is ${vars.reported}% but the start asked for ${vars.expected}% — sending it again (${pending.attempts})`);
+    try {
+      // Already heating, so the door check a fresh start does is beside the point.
+      await this._withAuthHandling(this.api.turnOn({
+        temperature: pending.temperature,
+        humidity: pending.humidity,
+        currentTemperature: status.temperature,
+        safetyOverride: true,
+      }));
+    } catch (err) {
+      this.error('Re-sending the humidity failed:', err.message);
+      return;
+    }
+    if (pending.attempts === 1) await this._notifyTimeline('notifications.humidity_reapplied', vars);
+  }
+
+  async _notifyTimeline(key, vars) {
+    if (!this._cfg('timelineNotifications', true)) return;
+    await this.homey.notifications.createNotification({ excerpt: this.homey.__(key, vars) }).catch(() => {});
   }
 
   /** Used by the "start_with_temperature_and_humidity" Flow action card. */
@@ -1185,6 +1261,8 @@ class HuumDevice extends Homey.Device {
     await this._syncSafetyAlarms(status);
     await this._syncTimeRemaining(status);
     await this._trackSessionStats(status);
+    await this._verifyHumidityAfterStart(status)
+      .catch((err) => this.error('Humidity check failed:', err.message));
     await this._applyDeviceLimits(status);
     await this._applyHumidityLimit(this.getCapabilityValue('target_temperature'), status);
     await this._applyHumidityTileFix();
