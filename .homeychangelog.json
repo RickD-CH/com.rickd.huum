@@ -92,7 +92,7 @@
     "de": "Das Widget kann jetzt einen Start planen, und die Feuchte eines Starts wird danach geprueft und bei Bedarf neu gesetzt."
   },
   "0.9.6": {
-    "en": "Fixed the humidity slider turning every value into 0 % or 100 % (a rounding problem).",
-    "de": "Der Feuchte-Regler machte aus jedem Wert 0 % oder 100 % (ein Rundungsproblem) - behoben."
+    "en": "Fixed the humidity slider turning every value into 0 % or 100 %, and the humidity is sent to the sauna in the form its controller accepts again.",
+    "de": "Der Feuchte-Regler machte aus jedem Wert 0 % oder 100 % - behoben, und die Feuchte wird der Sauna wieder in der Form geschickt, die ihre Steuerung annimmt."
   }
 }

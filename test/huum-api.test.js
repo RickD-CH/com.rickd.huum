@@ -75,8 +75,14 @@ console.log('getMaxHumidity thresholds OK');
   await api.turnOn({ temperature: 70.6, humidity: 25 });
   assert.strictEqual(capturedBody.method, 'POST');
   assert.strictEqual(capturedBody.path, '/start');
-  assert.deepStrictEqual(capturedBody.body, { targetTemperature: 71, humidity: 25 });
-  console.log('turnOn payload construction OK (rounds temperature, includes humidity)');
+  assert.deepStrictEqual(
+    capturedBody.body,
+    { targetTemperature: 71, humidity: 25, targetHumidity: 25 },
+    'humidity goes out under both names — the controller only adopts it that way',
+  );
+  await api.turnOn({ temperature: 70, humidity: 0 });
+  assert.deepStrictEqual(capturedBody.body, { targetTemperature: 70 }, 'no humidity field at all for 0 / dry');
+  console.log('turnOn payload construction OK (rounds temperature, humidity under both names)');
 
   // _parseStatus mapping (static)
   const parsed = HuumApi._parseStatus({
