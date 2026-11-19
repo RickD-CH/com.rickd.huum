@@ -23,6 +23,7 @@
     "booking_started": "__name__: the scheduled sauna session has started.",
     "booking_failed": "__name__: the scheduled start failed — __error__",
     "humidity_reapplied": "__name__: after the start the sauna reported __reported__ % target humidity, so it was set again to __expected__ %.",
+    "humidity_limited": "__name__: this sauna's controller only accepts up to __max__ % humidity, so the requested __wanted__ % was set to __max__ %.",
     "humidity_not_applied": "__name__: the sauna still reports __reported__ % target humidity instead of __expected__ % — please check it on the UKU panel."
   },
   "labels": {

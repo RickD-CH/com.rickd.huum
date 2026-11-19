@@ -989,9 +989,22 @@ class HuumDevice extends Homey.Device {
     }
     try {
       let humidity = humidityPercent;
-      if (clampHumidity && typeof humidity === 'number' && !Number.isNaN(humidity)) {
-        const cabin = last && typeof last.temperature === 'number' ? Math.round(last.temperature) : -Infinity;
-        humidity = Math.min(humidity, getMaxHumidityForTemperature(Math.max(Math.round(temperature), cabin)));
+      const numeric = typeof humidity === 'number' && !Number.isNaN(humidity);
+      const cabin = last && typeof last.temperature === 'number' ? Math.round(last.temperature) : -Infinity;
+      const tableMax = getMaxHumidityForTemperature(Math.max(Math.round(temperature), cabin));
+      if (clampHumidity && numeric) humidity = Math.min(humidity, tableMax);
+
+      // The controller's own maximum is what it really accepts: above it the
+      // humidity of a start is silently reset to 0 (live: 55 % on a UKU that
+      // reports a maximum of 10 switched the steamer off). Home Assistant's
+      // humidity entity takes its range from the same field. A request above
+      // the manual's table is left alone so turnOn() still reports it.
+      const controllerMax = last && typeof last.maximumTargetHumidity === 'number'
+        ? Math.round(last.maximumTargetHumidity) : null;
+      let limitedFrom = null;
+      if (numeric && controllerMax != null && Math.round(humidity) > controllerMax && Math.round(humidity) <= tableMax) {
+        limitedFrom = Math.round(humidity);
+        humidity = controllerMax;
       }
       const args = { temperature, humidity };
       if (last && typeof last.temperature === 'number') args.currentTemperature = last.temperature;
@@ -1002,6 +1015,9 @@ class HuumDevice extends Homey.Device {
       }
       await this._withAuthHandling(this.api.turnOn(args));
       this._expectHumidityAfterStart(temperature, humidity);
+      if (limitedFrom != null && controllerMax >= 1) {
+        await this._notifyTimeline('notifications.humidity_limited', { name: this.getName(), wanted: limitedFrom, max: controllerMax });
+      }
     } catch (err) {
       if (err instanceof HuumSafetyError) {
         const doorErr = new Error(this.homey.__('errors.door_open'));
@@ -1058,8 +1074,33 @@ class HuumDevice extends Homey.Device {
       this._pendingHumidityCheck = null;
       return;
     }
-    if (Math.round(status.targetHumidity) === pending.humidity) { this._pendingHumidityCheck = null; return; }
+    if (Math.round(status.targetHumidity) === pending.humidity) {
+      this._pendingHumidityCheck = null;
+      if (pending.limitedFrom) {
+        await this._notifyTimeline('notifications.humidity_limited', {
+          name: this.getName(), wanted: pending.limitedFrom, max: pending.humidity,
+        });
+      }
+      return;
+    }
     if (age < HUMIDITY_CHECK_SETTLE_MS) return;
+
+    // The controller says it accepts no more than `maximumTargetHumidity` and
+    // silently ignores anything above it (a UKU WiFi sat at 10 % while the
+    // manual allows 55 % at 50 °C) — so ask for what it accepts rather than
+    // repeating a value it already refused.
+    const accepted = typeof status.maximumTargetHumidity === 'number' ? Math.round(status.maximumTargetHumidity) : null;
+    const wanted = pending.humidity;
+    if (accepted != null && accepted < wanted) {
+      if (accepted < 1) { this._pendingHumidityCheck = null; return; }
+      pending.humidity = accepted;
+      pending.limitedFrom = wanted;
+      if (Math.round(status.targetHumidity) === accepted) {
+        this._pendingHumidityCheck = null;
+        await this._notifyTimeline('notifications.humidity_limited', { name: this.getName(), wanted, max: accepted });
+        return;
+      }
+    }
 
     const vars = { name: this.getName(), reported: Math.round(status.targetHumidity), expected: pending.humidity };
     if (pending.attempts >= HUMIDITY_CHECK_MAX_RETRIES) {
@@ -1082,7 +1123,8 @@ class HuumDevice extends Homey.Device {
       this.error('Re-sending the humidity failed:', err.message);
       return;
     }
-    if (pending.attempts === 1) await this._notifyTimeline('notifications.humidity_reapplied', vars);
+    // A limited request is announced once it has actually arrived (above).
+    if (pending.attempts === 1 && !pending.limitedFrom) await this._notifyTimeline('notifications.humidity_reapplied', vars);
   }
 
   async _notifyTimeline(key, vars) {

@@ -1185,6 +1185,62 @@ async function testScheduledProfileStartPassesTemperatureAndHumidity() {
   console.log('OK: a scheduled start passes the profile\'s temperature/humidity, clamping humidity only for an unattended start');
 }
 
+async function testStartRespectsTheControllersOwnHumidityMaximum() {
+  const make = (maximumTargetHumidity) => {
+    const device = makeDevice({
+      capabilities: { thermostat_mode: 'off', target_temperature: 50, target_humidity: 0.55, huum_target_humidity: 55 },
+    });
+    device.__store.profile2Temperature = 50;
+    device.__store.profile2Humidity = 55;
+    device._lastStatus = {
+      temperature: 24, remoteSafetyState: 'safe', doorClosed: true, ...(maximumTargetHumidity === undefined ? {} : { maximumTargetHumidity }),
+    };
+    const sent = [];
+    device.api = {
+      turnOn: async (args) => { sent.push(args); return {}; },
+      getStatus: async () => { throw new Error('x'); },
+    };
+    return { device, sent };
+  };
+
+  // A UKU reporting a maximum of 10: 55 % would silently switch the steamer
+  // off, so the start asks for 10 and says so.
+  let { device, sent } = make(10);
+  await device.startWithProfile('profile2');
+  assert.strictEqual(sent[0].humidity, 10, 'the start asks for what the controller accepts, not the refused 55');
+  assert.strictEqual(device.homey.__notifications.length, 1, 'and the owner is told');
+  assert.ok(/55 %/.test(device.homey.__notifications[0].excerpt) && /10 %/.test(device.homey.__notifications[0].excerpt));
+  assert.strictEqual(device._pendingHumidityCheck.humidity, 10, 'the after-start check expects the lowered value');
+
+  // A scheduled start is limited the same way.
+  ({ device, sent } = make(10));
+  device.__store.booking = { at: Date.now() - 1000, profile: 'profile2', temperature: null, humidity: null };
+  await device._fireBooking();
+  assert.strictEqual(sent[0].humidity, 10);
+
+  // No maximum reported, or one that allows the wish: nothing changes.
+  ({ device, sent } = make());
+  await device.startWithProfile('profile2');
+  assert.strictEqual(sent[0].humidity, 55);
+  assert.strictEqual(device.homey.__notifications.length, 0);
+  ({ device, sent } = make(55));
+  await device.startWithProfile('profile2');
+  assert.strictEqual(sent[0].humidity, 55);
+
+  // Above the manual's table the request is left alone, so the API still
+  // reports the real mistake ("100 % is too high at 50 °C").
+  ({ device, sent } = make(10));
+  await device._start(50, 100);
+  assert.strictEqual(sent[0].humidity, 100);
+
+  // A maximum of 0 means no steam at all: nothing to announce.
+  ({ device, sent } = make(0));
+  await device.startWithProfile('profile2');
+  assert.strictEqual(sent[0].humidity, 0);
+  assert.strictEqual(device.homey.__notifications.length, 0);
+  console.log('OK: a start never asks for more humidity than the controller itself says it accepts');
+}
+
 async function testHumidityIsVerifiedAfterAStartAndSentAgainIfItDidNotStick() {
   const make = () => {
     const device = makeDevice({
@@ -1261,6 +1317,37 @@ async function testHumidityIsVerifiedAfterAStartAndSentAgainIfItDidNotStick() {
   assert.ok(device._pendingHumidityCheck, 'a status without a humidity reading proves nothing either way');
   await device._verifyHumidityAfterStart({ isHeating: false });
   assert.strictEqual(device._pendingHumidityCheck, null, 'but heating and then stopped ends the check');
+
+  // The controller says it accepts at most 10 % (and ignores anything above):
+  // repeating 55 would be pointless, so the retry asks for what it accepts.
+  ({ device, sent } = make());
+  await device._start(50, 55);
+  age(device, 30000);
+  const capped = (humidity) => ({ ...heating(humidity), maximumTargetHumidity: 10 });
+  await device._verifyHumidityAfterStart(capped(5));
+  assert.strictEqual(sent.length, 2);
+  assert.strictEqual(sent[1].humidity, 10, 'the retry asks for the controller\'s own maximum, not the refused 55');
+  assert.strictEqual(device.homey.__notifications.length, 0, 'nothing is announced until the lower value has really arrived');
+  await device._verifyHumidityAfterStart(capped(10));
+  assert.strictEqual(device._pendingHumidityCheck, null, 'and the check ends once the controller reports it');
+  assert.strictEqual(device.homey.__notifications.length, 1, 'then the owner is told about the limit');
+  assert.ok(/10 %/.test(device.homey.__notifications[0].excerpt) && /55 %/.test(device.homey.__notifications[0].excerpt), 'naming both the wish and the limit');
+
+  // Already sitting at the controller's maximum: no pointless resend, just the note.
+  ({ device, sent } = make());
+  await device._start(50, 55);
+  age(device, 30000);
+  await device._verifyHumidityAfterStart(capped(10));
+  assert.strictEqual(sent.length, 1, 'nothing to resend when the controller already holds its maximum');
+  assert.strictEqual(device.homey.__notifications.length, 1);
+  assert.strictEqual(device._pendingHumidityCheck, null);
+
+  // A controller that reports no maximum (or a higher one) keeps the old behaviour.
+  ({ device, sent } = make());
+  await device._start(50, 55);
+  age(device, 30000);
+  await device._verifyHumidityAfterStart({ ...heating(0), maximumTargetHumidity: 55 });
+  assert.strictEqual(sent[1].humidity, 55, 'a maximum that allows the wish changes nothing');
 
   // No humidity asked for, or no steamer: nothing to verify.
   ({ device } = make());
@@ -1480,6 +1567,7 @@ async function testReliableTargetHumidityFractionPrefersTheMirror() {
   await testWidgetShowsAndCancelsTheScheduledStart();
   await testWidgetSchedulesAStartOnTheHomeyClock();
   await testScheduledProfileStartPassesTemperatureAndHumidity();
+  await testStartRespectsTheControllersOwnHumidityMaximum();
   await testHumidityIsVerifiedAfterAStartAndSentAgainIfItDidNotStick();
   await testStaleBookingIsDroppedNotFired();
   await testFailedScheduledStartIsRecordedWithReason();

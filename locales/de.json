@@ -23,6 +23,7 @@
     "booking_started": "__name__: Die geplante Sauna-Sitzung wurde gestartet.",
     "booking_failed": "__name__: Der geplante Start ist fehlgeschlagen — __error__",
     "humidity_reapplied": "__name__: Nach dem Start meldete die Sauna __reported__ % Ziel-Feuchtigkeit, daher wurde sie erneut auf __expected__ % gesetzt.",
+    "humidity_limited": "__name__: Die Steuerung dieser Sauna nimmt nur bis __max__ % Feuchtigkeit an, daher wurden die gewünschten __wanted__ % auf __max__ % gesetzt.",
     "humidity_not_applied": "__name__: Die Sauna meldet weiterhin __reported__ % Ziel-Feuchtigkeit statt __expected__ % — bitte am UKU-Panel prüfen."
   },
   "labels": {

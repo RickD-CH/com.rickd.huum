@@ -99,6 +99,8 @@ console.log('getMaxHumidity thresholds OK');
   assert.strictEqual(parsed.isHeating, true);
   assert.strictEqual(parsed.doorClosed, true);
   assert.strictEqual(parsed.targetHumidity, 40);
+  assert.strictEqual(parsed.maximumTargetHumidity, null, 'no maximum reported -> null');
+  assert.strictEqual(HuumApi._parseStatus({ statusCode: 232, maximumTargetHumidity: 10 }).maximumTargetHumidity, 10);
   assert.strictEqual(parsed.saunaName, 'Backyard Sauna');
   console.log('_parseStatus field mapping OK');
 
