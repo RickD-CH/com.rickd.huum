@@ -14,7 +14,8 @@
   },
   "warnings": {
     "remote_disabled": "Fernsteuerung deaktiviert — bestätige die Sicherheit am UKU-Bedienfeld, um die Sauna aus Homey zu starten.",
-    "door_open": "Die Tür ist offen — schließe sie, um die Heizung einzuschalten."
+    "door_open": "Die Tür ist offen — schließe sie, um die Heizung einzuschalten.",
+    "humidity_limited": "Feuchte eingeschränkt: Die Steuerung dieser Sauna nimmt nur bis __max__ % an (laut Handbuch wären hier __tableMax__ % erlaubt) und zeigt sie nach dem Start teils erst nach einer Minute an."
   },
   "notifications": {
     "water_alarm_title": "__name__: Verdampfer braucht Wasser.",

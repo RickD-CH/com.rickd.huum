@@ -14,7 +14,8 @@
   },
   "warnings": {
     "remote_disabled": "Remote control disabled — confirm safety on the UKU panel to start the sauna from Homey.",
-    "door_open": "The door is open — close it to switch on the heating."
+    "door_open": "The door is open — close it to switch on the heating.",
+    "humidity_limited": "Humidity is limited: this sauna's controller only accepts up to __max__ % (the manual allows __tableMax__ % here), and after a start it can take a minute to show."
   },
   "notifications": {
     "water_alarm_title": "__name__: steamer needs water.",

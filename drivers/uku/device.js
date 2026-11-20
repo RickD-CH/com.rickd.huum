@@ -1374,6 +1374,8 @@ class HuumDevice extends Homey.Device {
     if (this.hasCapability('alarm_contact') && status.doorClosed === false) {
       parts.push(this.homey.__('warnings.door_open'));
     }
+    const humidityNote = this._humidityLimitWarning(status);
+    if (humidityNote) parts.push(humidityNote);
     const message = parts.join(' ');
     if (message === this._lastWarning) return;
     this._lastWarning = message;
@@ -1383,6 +1385,27 @@ class HuumDevice extends Homey.Device {
     } catch (err) {
       this.error('Could not set device warning:', err.message);
     }
+  }
+
+  /**
+   * A standing notice while the controller's own humidity ceiling
+   * (`maximumTargetHumidity`) sits below what the UKU manual allows at the
+   * chosen temperature — live on a UQ4 with firmware 4.6.0-4: 10 % at 50 °C
+   * where the manual says 55 %. Anything above the ceiling is ignored by the
+   * sauna, so the slider promises more than the heater delivers. Empty when
+   * there is no steamer, no ceiling reported, or nothing is restricted (the
+   * ceiling at 90 °C is 10 % by the manual itself).
+   */
+  _humidityLimitWarning(status) {
+    if (!status || !this.hasCapability('target_humidity')) return '';
+    if (typeof status.maximumTargetHumidity !== 'number') return '';
+    const max = Math.round(status.maximumTargetHumidity);
+    const temps = [this.getCapabilityValue('target_temperature'), status.temperature]
+      .filter((t) => typeof t === 'number');
+    if (!temps.length) return '';
+    const tableMax = Math.round(getMaxHumidityForTemperature(Math.max(...temps)));
+    if (max >= tableMax) return '';
+    return this.homey.__('warnings.humidity_limited', { max, tableMax });
   }
 
   async _syncSafetyAlarms(status) {

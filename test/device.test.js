@@ -555,6 +555,47 @@ async function testRemoteSafetyBlocksStartAndWarns() {
   console.log('OK: remote-safety lock blocks a start and surfaces a device warning');
 }
 
+async function testHumidityLimitWarning() {
+  const device = makeDevice({
+    capabilities: {
+      thermostat_mode: 'off', target_temperature: 50, target_humidity: 0.1, alarm_contact: false, alarm_generic: false,
+    },
+  });
+  const base = { remoteSafetyState: 'safe', doorClosed: true, temperature: 25 };
+
+  // Controller ceiling 10 % at 50 °C, where the manual allows 55 %: warn.
+  await device._syncWarnings({ ...base, maximumTargetHumidity: 10 });
+  assert.ok(/10 %/.test(device.__warning) && /55 %/.test(device.__warning), 'warning names the controller ceiling and the manual value');
+
+  // Ceiling as the manual says: no warning.
+  await device._syncWarnings({ ...base, maximumTargetHumidity: 55 });
+  assert.strictEqual(device.__warning, null, 'no warning when the controller allows what the manual allows');
+
+  // 10 % is the manual value itself at 90 °C: no warning.
+  device.__capabilities.set('target_temperature', 90);
+  await device._syncWarnings({ ...base, maximumTargetHumidity: 10 });
+  assert.strictEqual(device.__warning, null, 'no warning when the ceiling matches the table at the target temperature');
+
+  // No ceiling reported, or no steamer: nothing to say.
+  device.__capabilities.set('target_temperature', 50);
+  await device._syncWarnings({ ...base });
+  assert.strictEqual(device.__warning, null, 'no warning without a reported ceiling');
+  device.__capabilities.delete('target_humidity');
+  await device._syncWarnings({ ...base, maximumTargetHumidity: 10 });
+  assert.strictEqual(device.__warning, null, 'no warning on a sauna without a steamer');
+
+  // It joins the other banner conditions rather than replacing them.
+  device.__capabilities.set('target_humidity', 0.1);
+  await device._syncWarnings({ ...base, remoteSafetyState: 'notSafe', maximumTargetHumidity: 10 });
+  assert.ok(/UKU/.test(device.__warning) && /55 %/.test(device.__warning), 'humidity note sits next to the remote-disabled warning');
+
+  // The existing "show warning banner" switch hides it too.
+  device.__settings = { showWarningBanner: false };
+  await device._syncWarnings({ ...base, maximumTargetHumidity: 10 });
+  assert.strictEqual(device.__warning, null, 'switching the banner off hides the humidity note');
+  console.log('OK: a standing warning tells when the controller limits the humidity below the manual');
+}
+
 async function testRemoteStateTriggersOnEdge() {
   const device = makeDevice({ capabilities: { huum_remote_blocked: false } });
 
@@ -1542,6 +1583,7 @@ async function testReliableTargetHumidityFractionPrefersTheMirror() {
   await testHumiditySensorAbsentHidesMeasureHumidity();
   await testDoorSensorAbsentOverridesSafetyCheck();
   await testRemoteSafetyBlocksStartAndWarns();
+  await testHumidityLimitWarning();
   await testRemoteStateTriggersOnEdge();
   await testFormatDeviceDateTimeUsesTheHomeyTimezone();
   await testGetConfigExposesRemoteBlocked();
